@@ -1,0 +1,195 @@
+.root {
+    -fx-font-family: "System";
+    -fx-font-size: 13px;
+    -fx-background-color: #f1f4f8;
+}
+
+.workspace {
+    -fx-padding: 28 32;
+}
+
+.label {
+    -fx-text-fill: #243248;
+}
+
+.eyebrow {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #6b7b91;
+}
+
+.title {
+    -fx-font-size: 30px;
+    -fx-font-weight: bold;
+}
+
+.muted {
+    -fx-text-fill: #617086;
+}
+
+.section-title,
+.console-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.status-badge {
+    -fx-padding: 9 13;
+    -fx-background-color: #e6ebf2;
+    -fx-background-radius: 20;
+}
+
+.status-dot {
+    -fx-fill: #8391a3;
+}
+
+.status-text {
+    -fx-text-fill: #52637a;
+    -fx-font-size: 12px;
+}
+
+.file-panel,
+.run-toolbar {
+    -fx-background-color: white;
+    -fx-background-radius: 10;
+    -fx-border-color: #dce2ea;
+    -fx-border-radius: 10;
+}
+
+.panel-heading {
+    -fx-padding: 20;
+}
+
+.panel-title {
+    -fx-font-size: 19px;
+    -fx-font-weight: bold;
+}
+
+.browser-heading {
+    -fx-padding: 10 20;
+    -fx-background-color: #f6f8fb;
+    -fx-border-color: #e7ecf2;
+    -fx-border-width: 1 0 1 0;
+}
+
+.browser-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #6c7a8f;
+}
+
+.browser-body {
+    -fx-background-color: #fcfdff;
+    -fx-background-radius: 0 0 10 10;
+}
+
+.file-tree,
+.file-tree .tree-cell:empty {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.empty-state {
+    -fx-padding: 16;
+}
+
+.empty-icon {
+    -fx-background-color: #edf2f8;
+    -fx-background-radius: 10;
+}
+
+.folder-icon {
+    -fx-fill: transparent;
+    -fx-stroke: #8a9db5;
+    -fx-stroke-width: 1.5;
+    -fx-stroke-line-join: round;
+    -fx-stroke-line-cap: round;
+}
+
+.empty-title {
+    -fx-font-weight: bold;
+    -fx-text-fill: #4e617a;
+}
+
+.empty-description {
+    -fx-font-size: 12px;
+    -fx-text-fill: #7b8aa0;
+    -fx-text-alignment: center;
+}
+
+.run-toolbar {
+    -fx-padding: 16 20;
+}
+
+.text-field {
+    -fx-padding: 10 12;
+    -fx-font-size: 12px;
+    -fx-background-color: #f7f9fc;
+    -fx-background-radius: 5;
+    -fx-border-color: #dce2ea;
+    -fx-border-radius: 5;
+    -fx-prompt-text-fill: #788496;
+}
+
+.button {
+    -fx-padding: 10 16;
+    -fx-font-weight: bold;
+    -fx-background-color: #e8edf4;
+    -fx-background-radius: 5;
+    -fx-text-fill: #52647c;
+}
+
+.button:disabled {
+    -fx-opacity: 0.75;
+}
+
+.run-button {
+    -fx-padding: 12 20;
+    -fx-background-color: #2e686a;
+    -fx-text-fill: white;
+}
+
+.play-icon {
+    -fx-fill: white;
+}
+
+.console-panel {
+    -fx-background-color: #142033;
+    -fx-background-radius: 10;
+}
+
+.console-heading {
+    -fx-padding: 16 20;
+    -fx-background-color: #1d2b40;
+    -fx-background-radius: 10 10 0 0;
+}
+
+.console-title {
+    -fx-text-fill: #eef3fa;
+}
+
+.console-description {
+    -fx-font-size: 12px;
+    -fx-text-fill: #9aabc1;
+}
+
+.console {
+    -fx-font-family: monospace;
+    -fx-font-size: 14px;
+    -fx-text-fill: #dce5f2;
+    -fx-prompt-text-fill: #b8c5d8;
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.console .content {
+    -fx-background-color: transparent;
+    -fx-padding: 20;
+}
+
+.console .scroll-pane,
+.console .viewport {
+    -fx-background-color: transparent;
+}
