@@ -17,7 +17,7 @@
     <HBox alignment="CENTER_LEFT" spacing="24">
         <VBox spacing="6">
             <Label text="AGS" styleClass="title"/>
-            <Label text="Auto Grading System"
+            <Label text="Auto Grading System Example1"
                    styleClass="muted"/>
         </VBox>
         <Region HBox.hgrow="ALWAYS"/>
