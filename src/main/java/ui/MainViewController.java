@@ -58,6 +58,8 @@ public final class MainViewController {
     private boolean testerValid;
     private boolean submissionsImported;
     private boolean submissionsValid;
+    private long readySubmissionCount;
+    private long totalSubmissionCount;
 
     @FXML
     private Button testerImportButton;
@@ -159,6 +161,8 @@ public final class MainViewController {
                 "normalized-" + UUID.randomUUID());
         submissionFolderField.setText(source.toAbsolutePath().toString());
         identityPromptOffered = false;
+        readySubmissionCount = 0;
+        totalSubmissionCount = 0;
         submissionImportButton.setDisable(true);
         statusText.setText("Validating submissions");
         consoleStatus.setText("Validation in progress");
@@ -202,6 +206,8 @@ public final class MainViewController {
         long corrections = results.stream().mapToLong(SubmissionValidationResult::correctedCount).sum();
         submissionsImported = true;
         submissionsValid = !results.isEmpty() && ready == results.size();
+        readySubmissionCount = ready;
+        totalSubmissionCount = results.size();
         latestSubmissionResults = List.copyOf(results);
         latestSubmissionWorkspace = workspace;
 
@@ -478,10 +484,8 @@ public final class MainViewController {
         if (testerImported && submissionsImported) {
             if (testerValid && submissionsValid) {
                 runReadinessText.setText("Both folders are validated and ready.");
-                statusText.setText("Inputs ready");
             } else {
                 runReadinessText.setText("Resolve the reported validation errors before grading.");
-                statusText.setText("Review required");
             }
         } else if (testerImported) {
             runReadinessText.setText("Import student submissions to complete input validation.");
@@ -490,6 +494,14 @@ public final class MainViewController {
         } else {
             runReadinessText.setText("Import both folders to get started.");
         }
+
+        if (totalSubmissionCount > 0) {
+            statusText.setText(formatSubmissionReadiness(readySubmissionCount, totalSubmissionCount));
+        }
+    }
+
+    static String formatSubmissionReadiness(long ready, long total) {
+        return ready + " out of " + total + " submissions ready";
     }
 
     private void updateResolveIssuesButton() {

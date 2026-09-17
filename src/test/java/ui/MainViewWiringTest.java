@@ -14,6 +14,12 @@ import org.junit.jupiter.api.Test;
 class MainViewWiringTest {
 
     @Test
+    void readinessIndicatorShowsTheBatchCount() {
+        assertEquals("6 out of 6 submissions ready", MainViewController.formatSubmissionReadiness(6, 6));
+        assertEquals("4 out of 6 submissions ready", MainViewController.formatSubmissionReadiness(4, 6));
+    }
+
+    @Test
     void bothFolderButtonsAreConnectedToControllerActions() throws Exception {
         String fxml = readMainView();
         String styles = readResource("/ui/styles.css");
