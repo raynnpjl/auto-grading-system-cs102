@@ -24,6 +24,39 @@ mvnw.cmd clean verify
 mvnw.cmd javafx:run
 ```
 
+## Submission validation
+
+Use **Import folder** under **Student submissions** to select either a single
+student folder or a batch folder containing student folders and ZIP files. The
+application checks the required assessment layout:
+
+```text
+username/
+  Q1/Q1a.java
+  Q1/Q1b.java
+  Q2/Q2a.java
+  Q2/Q2b.java
+  Q3/Q3.java
+  Q3/ShapeComparator.java
+```
+
+The import also checks leading Java comments for a student name and email. It
+creates corrected copies in a temporary normalized workspace and leaves the
+original submissions unchanged. Common folder-name, hierarchy, and incomplete
+header issues are corrected when the student identity can be established. Any
+unresolved issue is shown in **Findings & reports**, and one malformed
+submission does not stop the rest of the batch.
+
+The **Tester files** import validates `Q1aTester.java`, `Q1bTester.java`,
+`Q2aTester.java`, `Q2bTester.java`, and `Q3Tester.java`, including their public
+class names and `main` methods.
+
+Run the validation tests with:
+
+```bat
+mvnw.cmd test
+```
+
 On macOS, select an installed JDK 21 before running these commands:
 
 ```sh
