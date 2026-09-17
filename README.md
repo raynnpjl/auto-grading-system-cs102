@@ -47,6 +47,17 @@ header issues are corrected when the student identity can be established. Any
 unresolved issue is shown in **Findings & reports**, and one malformed
 submission does not stop the rest of the batch.
 
+Submission archives prefixed with an academic year, such as
+`2023-2024-chee.teo.2022.zip`, are normalized to the username
+`chee.teo.2022`. Because the username is the student's email prefix, a missing
+header email is filled automatically as `username@smu.edu.sg`.
+
+When identity information is missing or inconsistent, a guided bulk form asks
+the marker for each affected student's verified username, name, and email. The
+application validates those values, updates all Java headers in normalized
+copies, and reruns validation automatically. The **Resolve issues** button can
+reopen this form if it is dismissed.
+
 The **Tester files** import validates `Q1aTester.java`, `Q1bTester.java`,
 `Q2aTester.java`, `Q2bTester.java`, and `Q3Tester.java`, including their public
 class names and `main` methods.

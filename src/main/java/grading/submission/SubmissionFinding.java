@@ -29,14 +29,14 @@ public record SubmissionFinding(
                     "Retrieve the missing source file from the student's submission or request a resubmission, "
                             + "place it in the stated Q folder, then import the submissions again.";
             case "MISSING_HEADER_EMAIL" ->
-                    "Confirm the student's identity using the LMS or class roster, add the verified email to "
-                            + "this normalized Java file's header, then validate again.";
+                    "Select Resolve issues, confirm the student's username, name, and email from the LMS or "
+                            + "class roster, then apply once to update all normalized headers automatically.";
             case "USERNAME_UNKNOWN" ->
-                    "Identify the student from the LMS upload record or class roster, rename the folder to the "
-                            + "verified username, update the Java headers, then import it again.";
+                    "Select Resolve issues and enter the identity shown in the LMS upload record or class roster. "
+                            + "The application will rename the normalized copy and update every header.";
             case "HEADER_IDENTITY_MISMATCH", "CONFLICTING_HEADER_IDENTITIES" ->
-                    "Compare the ZIP/folder owner and every header against the LMS record. Correct only the "
-                            + "normalized copy after ownership is confirmed, then validate again.";
+                    "Compare the ZIP/folder owner against the LMS record, then select Resolve issues and enter the "
+                            + "single verified identity to replace inconsistent normalized headers automatically.";
             case "HEADER_UNREADABLE" ->
                     "Open the named Java file in an editor, confirm it is genuine source code, save it as UTF-8, "
                             + "and import the submission again.";

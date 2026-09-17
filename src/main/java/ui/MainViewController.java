@@ -1,35 +1,59 @@
 package ui;
 
 import grading.submission.SubmissionFinding;
+import grading.submission.SubmissionCorrectionService;
 import grading.submission.SubmissionPreparationService;
 import grading.submission.SubmissionValidationResult;
+import grading.submission.StudentIdentity;
 import grading.tester.TesterFileValidationService;
 import grading.tester.TesterValidationResult;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import javafx.application.Platform;
 import javafx.concurrent.Task;
+import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
+import javafx.geometry.Insets;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 
 public final class MainViewController {
 
     private final SubmissionPreparationService submissionService = new SubmissionPreparationService();
+    private final SubmissionCorrectionService correctionService =
+            new SubmissionCorrectionService(submissionService);
     private final TesterFileValidationService testerService = new TesterFileValidationService();
+    private static final Set<String> IDENTITY_ERROR_CODES = Set.of(
+            "MISSING_HEADER_EMAIL",
+            "USERNAME_UNKNOWN",
+            "HEADER_IDENTITY_MISMATCH",
+            "CONFLICTING_HEADER_IDENTITIES");
     private String testerReport = "";
     private String submissionReport = "";
+    private List<SubmissionValidationResult> latestSubmissionResults = List.of();
+    private Path latestSubmissionWorkspace;
+    private boolean identityPromptOffered;
     private boolean testerImported;
     private boolean testerValid;
     private boolean submissionsImported;
@@ -70,6 +94,9 @@ public final class MainViewController {
 
     @FXML
     private Label runReadinessText;
+
+    @FXML
+    private Button resolveIssuesButton;
 
     @FXML
     private void importTesterFiles() {
@@ -131,6 +158,7 @@ public final class MainViewController {
                 "cs102-auto-grading",
                 "normalized-" + UUID.randomUUID());
         submissionFolderField.setText(source.toAbsolutePath().toString());
+        identityPromptOffered = false;
         submissionImportButton.setDisable(true);
         statusText.setText("Validating submissions");
         consoleStatus.setText("Validation in progress");
@@ -174,6 +202,8 @@ public final class MainViewController {
         long corrections = results.stream().mapToLong(SubmissionValidationResult::correctedCount).sum();
         submissionsImported = true;
         submissionsValid = !results.isEmpty() && ready == results.size();
+        latestSubmissionResults = List.copyOf(results);
+        latestSubmissionWorkspace = workspace;
 
         TreeItem<String> root = new TreeItem<>("Normalized submissions");
         root.setExpanded(true);
@@ -223,6 +253,141 @@ public final class MainViewController {
         consoleStatus.setText(String.format(
                 Locale.ROOT, "%d ready, %d need attention", ready, errors));
         updateReadiness();
+        updateResolveIssuesButton();
+        if (resolveIssuesButton.isVisible() && !identityPromptOffered) {
+            identityPromptOffered = true;
+            Platform.runLater(this::resolveSubmissionIssues);
+        }
+    }
+
+    @FXML
+    private void resolveSubmissionIssues() {
+        List<SubmissionValidationResult> affected = latestSubmissionResults.stream()
+                .filter(this::needsIdentityInput)
+                .filter(result -> result.normalizedRoot() != null)
+                .toList();
+        if (affected.isEmpty()) {
+            updateResolveIssuesButton();
+            return;
+        }
+
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.initOwner(resolveIssuesButton.getScene().getWindow());
+        dialog.setTitle("Resolve student identity issues");
+        dialog.setHeaderText("Complete all verified student details once; the application will update every "
+                + "normalized Java header and validate the submissions again.");
+
+        ButtonType applyButton = new ButtonType("Apply and revalidate", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(applyButton, ButtonType.CANCEL);
+        dialog.getDialogPane().setPrefWidth(940);
+
+        GridPane grid = new GridPane();
+        grid.setHgap(12);
+        grid.setVgap(10);
+        grid.setPadding(new Insets(4));
+        grid.addRow(0,
+                new Label("Submission"),
+                new Label("Verified username"),
+                new Label("Student name"),
+                new Label("Student email"));
+
+        Map<SubmissionValidationResult, IdentityFields> fields = new LinkedHashMap<>();
+        int row = 1;
+        for (SubmissionValidationResult result : affected) {
+            TextField username = new TextField(suggestedUsername(result));
+            username.setPromptText("e.g. jane.tan.2026");
+            TextField name = new TextField(suggestedName(result.username()));
+            name.setPromptText("Full name");
+            TextField email = new TextField(suggestedEmail(result));
+            email.setPromptText("username@school.edu");
+            grid.addRow(row++, new Label(result.source().getFileName().toString()), username, name, email);
+            fields.put(result, new IdentityFields(username, name, email));
+        }
+
+        ScrollPane scrollPane = new ScrollPane(grid);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setPrefViewportHeight(Math.min(430, 72 + affected.size() * 48));
+        Label validationMessage = new Label();
+        validationMessage.setWrapText(true);
+        validationMessage.setStyle("-fx-text-fill: #b42318; -fx-font-weight: bold;");
+        Label safetyNote = new Label(
+                "Original submissions will not be changed. Only normalized working copies are updated.");
+        safetyNote.setWrapText(true);
+        VBox content = new VBox(10, safetyNote, scrollPane, validationMessage);
+        content.setPadding(new Insets(4));
+        dialog.getDialogPane().setContent(content);
+
+        Map<SubmissionValidationResult, StudentIdentity> confirmed = new LinkedHashMap<>();
+        Button apply = (Button) dialog.getDialogPane().lookupButton(applyButton);
+        apply.addEventFilter(ActionEvent.ACTION, event -> {
+            confirmed.clear();
+            try {
+                for (Map.Entry<SubmissionValidationResult, IdentityFields> entry : fields.entrySet()) {
+                    IdentityFields values = entry.getValue();
+                    confirmed.put(entry.getKey(), new StudentIdentity(
+                            values.username().getText(),
+                            values.name().getText(),
+                            values.email().getText()));
+                }
+                validationMessage.setText("");
+            } catch (IllegalArgumentException exception) {
+                validationMessage.setText(exception.getMessage());
+                event.consume();
+            }
+        });
+
+        Optional<ButtonType> selected = dialog.showAndWait();
+        if (selected.filter(applyButton::equals).isPresent()) {
+            applyConfirmedIdentities(confirmed);
+        }
+    }
+
+    private void applyConfirmedIdentities(
+            Map<SubmissionValidationResult, StudentIdentity> confirmed) {
+        if (confirmed.isEmpty() || latestSubmissionWorkspace == null) {
+            return;
+        }
+
+        resolveIssuesButton.setDisable(true);
+        statusText.setText("Applying verified identities");
+        consoleStatus.setText("Revalidating corrected copies");
+        Path correctionRoot = latestSubmissionWorkspace.resolve("guided-corrections-" + UUID.randomUUID());
+        List<SubmissionValidationResult> currentResults = latestSubmissionResults;
+
+        Task<List<SubmissionValidationResult>> task = new Task<>() {
+            @Override
+            protected List<SubmissionValidationResult> call() throws IOException {
+                List<SubmissionValidationResult> updated = new ArrayList<>();
+                int index = 0;
+                for (SubmissionValidationResult result : currentResults) {
+                    StudentIdentity identity = confirmed.get(result);
+                    if (identity == null) {
+                        updated.add(result);
+                    } else {
+                        Path studentWorkspace = correctionRoot.resolve("student-" + index++);
+                        updated.add(correctionService.applyIdentity(result, identity, studentWorkspace));
+                    }
+                }
+                return List.copyOf(updated);
+            }
+        };
+        task.setOnSucceeded(event -> {
+            resolveIssuesButton.setDisable(false);
+            showResults(task.getValue(), latestSubmissionWorkspace);
+        });
+        task.setOnFailed(event -> {
+            resolveIssuesButton.setDisable(false);
+            submissionReport += "\nGuided correction could not be completed: "
+                    + safeMessage(task.getException())
+                    + "\nNext step for marker: Review the entered identity values and try Resolve issues again.\n";
+            refreshReports();
+            statusText.setText("Correction failed");
+            consoleStatus.setText("Verified details were not applied");
+        });
+
+        Thread worker = new Thread(task, "submission-identity-correction");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void showTesterResult(TesterValidationResult result) {
@@ -327,11 +492,49 @@ public final class MainViewController {
         }
     }
 
+    private void updateResolveIssuesButton() {
+        boolean hasIdentityIssues = latestSubmissionResults.stream().anyMatch(this::needsIdentityInput);
+        resolveIssuesButton.setVisible(hasIdentityIssues);
+        resolveIssuesButton.setManaged(hasIdentityIssues);
+    }
+
+    private boolean needsIdentityInput(SubmissionValidationResult result) {
+        return result.findings().stream()
+                .anyMatch(finding -> finding.severity() == grading.submission.FindingSeverity.ERROR
+                        && IDENTITY_ERROR_CODES.contains(finding.code()));
+    }
+
+    private String suggestedUsername(SubmissionValidationResult result) {
+        return result.username().startsWith("unknown-") ? "" : result.username();
+    }
+
+    private String suggestedName(String username) {
+        if (username == null || username.startsWith("unknown-")) {
+            return "";
+        }
+        String cleaned = username.replaceFirst("[._-](?:19|20)\\d{2}$", "");
+        List<String> words = new ArrayList<>();
+        for (String part : cleaned.split("[._-]+")) {
+            if (!part.isBlank()) {
+                words.add(Character.toUpperCase(part.charAt(0)) + part.substring(1));
+            }
+        }
+        return String.join(" ", words);
+    }
+
+    private String suggestedEmail(SubmissionValidationResult result) {
+        String username = suggestedUsername(result);
+        return username.isBlank() ? "" : username.toLowerCase(Locale.ROOT) + "@smu.edu.sg";
+    }
+
     private String safeMessage(Throwable failure) {
         if (failure == null) {
             return "Unknown validation error";
         }
         String message = failure.getMessage();
         return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
+    }
+
+    private record IdentityFields(TextField username, TextField name, TextField email) {
     }
 }

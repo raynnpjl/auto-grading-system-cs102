@@ -160,6 +160,16 @@
     -fx-background-color: #245759;
 }
 
+.resolution-button {
+    -fx-background-color: #f0b429;
+    -fx-text-fill: #172235;
+    -fx-cursor: hand;
+}
+
+.resolution-button:hover {
+    -fx-background-color: #ffc94d;
+}
+
 .play-icon {
     -fx-fill: white;
 }

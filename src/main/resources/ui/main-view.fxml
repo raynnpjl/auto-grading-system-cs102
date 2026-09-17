@@ -115,6 +115,8 @@
                 <Label text="Compilation, execution, and grading results" styleClass="console-description"/>
             </VBox>
             <Region HBox.hgrow="ALWAYS"/>
+            <Button fx:id="resolveIssuesButton" text="Resolve issues" visible="false" managed="false"
+                    styleClass="resolution-button" onAction="#resolveSubmissionIssues"/>
             <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"/>
         </HBox>
         <TextArea fx:id="findingsConsole" promptText="Validation findings will appear here after import."

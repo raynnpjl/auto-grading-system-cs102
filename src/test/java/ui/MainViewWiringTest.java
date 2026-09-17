@@ -27,6 +27,9 @@ class MainViewWiringTest {
                 () -> assertEquals(2, countOccurrences(fxml, "styleClass=\"import-button\"")),
                 () -> assertTrue(styles.contains(".import-button:hover")),
                 () -> assertTrue(styles.contains(".import-button:pressed")),
+                () -> assertTrue(fxml.contains("fx:id=\"resolveIssuesButton\"")),
+                () -> assertTrue(fxml.contains("onAction=\"#resolveSubmissionIssues\"")),
+                () -> assertTrue(styles.contains(".resolution-button")),
                 () -> assertFalse(Pattern.compile("<TreeView[^>]*mouseTransparent=\"true\"")
                         .matcher(fxml)
                         .find()),
@@ -35,6 +38,9 @@ class MainViewWiringTest {
                         .isAnnotationPresent(FXML.class)),
                 () -> assertTrue(MainViewController.class
                         .getDeclaredMethod("importSubmissions")
+                        .isAnnotationPresent(FXML.class)),
+                () -> assertTrue(MainViewController.class
+                        .getDeclaredMethod("resolveSubmissionIssues")
                         .isAnnotationPresent(FXML.class)));
     }
 

@@ -41,6 +41,8 @@ public final class SubmissionPreparationService {
             "(?i)\\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}\\b");
     private static final Pattern NAME_PATTERN = Pattern.compile(
             "(?im)\\b(?:student\\s+name|name)\\s*[:=-]\\s*([^\\r\\n*/]{2,80})");
+    private static final Pattern ACADEMIC_YEAR_PREFIX_PATTERN = Pattern.compile(
+            "^(?:19|20)\\d{2}-(?:19|20)\\d{2}-(.+)$");
     private static final Pattern TRAILING_YEAR_PATTERN = Pattern.compile("[._-](?:19|20)\\d{2}$");
     private static final Map<String, String> REQUIRED_JAVA_FILES = createRequirements();
 
@@ -317,6 +319,9 @@ public final class SubmissionPreparationService {
         HeaderIdentity fileIdentity = identityFromHeader(header);
         boolean missingName = fileIdentity.name().isEmpty();
         boolean missingEmail = fileIdentity.email().isEmpty();
+        Optional<String> repairEmail = batchIdentity.email().isPresent()
+                ? batchIdentity.email()
+                : emailFromUsername(username);
 
         if (fileIdentity.email().isPresent()
                 && !emailMatchesUsername(fileIdentity.email().get(), username)) {
@@ -333,10 +338,10 @@ public final class SubmissionPreparationService {
             String name = batchIdentity.name().orElseGet(() -> displayNameFromUsername(username));
             additions.add(" * Student name: " + name);
         }
-        if (missingEmail && batchIdentity.email().isPresent()) {
-            additions.add(" * Student email: " + batchIdentity.email().get());
+        if (missingEmail && repairEmail.isPresent()) {
+            additions.add(" * Student email: " + repairEmail.get());
         }
-        if (missingEmail && batchIdentity.email().isEmpty()) {
+        if (missingEmail && repairEmail.isEmpty()) {
             additions.add(" * Student username: " + username);
         }
 
@@ -352,12 +357,12 @@ public final class SubmissionPreparationService {
                     javaFile.getFileName() + " had no student name in its header; one was added.",
                     true));
         }
-        if (missingEmail && batchIdentity.email().isPresent()) {
+        if (missingEmail && repairEmail.isPresent()) {
             findings.add(new SubmissionFinding(
                     FindingSeverity.WARNING,
                     "MISSING_HEADER_EMAIL",
-                    javaFile.getFileName() + " had no email in its header; the email found elsewhere "
-                            + "in the submission was added.",
+                    javaFile.getFileName() + " had no email in its header; " + repairEmail.get()
+                            + " was added automatically from the trusted submission identity.",
                     true));
         } else if (missingEmail) {
             findings.add(new SubmissionFinding(
@@ -412,18 +417,6 @@ public final class SubmissionPreparationService {
             List<SubmissionFinding> findings) {
         Optional<String> fileCandidate = candidateUsername(submission);
         if (fileCandidate.isPresent() && !isGenericName(fileCandidate.get())) {
-            if (identity.email().isPresent()) {
-                String emailUsername = identity.email().get().substring(0, identity.email().get().indexOf('@'));
-                if (!normalizeIdentifier(fileCandidate.get()).equals(normalizeIdentifier(emailUsername))) {
-                    findings.add(new SubmissionFinding(
-                            FindingSeverity.WARNING,
-                            "WRONG_SUBMISSION_NAME",
-                            "Submission name " + fileCandidate.get() + " did not match the consistent header "
-                                    + "email; the normalized copy uses " + emailUsername + ".",
-                            true));
-                    return emailUsername;
-                }
-            }
             return fileCandidate.get();
         }
 
@@ -637,7 +630,18 @@ public final class SubmissionPreparationService {
         if (name.toLowerCase(Locale.ROOT).endsWith(".zip")) {
             name = name.substring(0, name.length() - 4);
         }
+        Matcher academicYearPrefix = ACADEMIC_YEAR_PREFIX_PATTERN.matcher(name);
+        if (academicYearPrefix.matches()) {
+            name = academicYearPrefix.group(1);
+        }
         return name.isBlank() ? Optional.empty() : Optional.of(name);
+    }
+
+    private Optional<String> emailFromUsername(String username) {
+        if (username == null || username.startsWith("unknown-") || isGenericName(username)) {
+            return Optional.empty();
+        }
+        return Optional.of(username.toLowerCase(Locale.ROOT) + "@smu.edu.sg");
     }
 
     private boolean isGenericName(String name) {

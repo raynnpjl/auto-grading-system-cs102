@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -112,7 +113,7 @@ class SubmissionPreparationServiceTest {
     @Test
     void unsafeZipEntryIsReportedAndSkipped() throws IOException {
         Path zip = tempDirectory.resolve("erin.2026.zip");
-        Map<String, String> entries = new java.util.LinkedHashMap<>();
+        Map<String, String> entries = new LinkedHashMap<>();
         entries.put("../outside.java", "class Outside {}");
         entries.put("erin.2026/Q1/Q1a.java", javaSource(
                 "// Name: Erin Example\n// Email: erin.2026@school.example\n"));
@@ -152,7 +153,7 @@ class SubmissionPreparationServiceTest {
     }
 
     @Test
-    void correctsWrongNonTemplateFolderNameFromConsistentHeaderEmail() throws IOException {
+    void treatsTheFolderNameAsTheAuthoritativeUsername() throws IOException {
         Path wrongName = Files.createDirectory(tempDirectory.resolve("student_12345"));
         createRequiredFiles(wrongName,
                 "// Name: Frank Example\n// Email: frank.2026@school.example\n");
@@ -160,9 +161,30 @@ class SubmissionPreparationServiceTest {
         SubmissionValidationResult result = service.prepareBatch(
                 wrongName, tempDirectory.resolve("normalized")).getFirst();
 
-        assertEquals("frank.2026", result.username());
+        assertEquals("student_12345", result.username());
+        assertTrue(result.hasErrors());
+        assertTrue(hasFinding(result, "HEADER_IDENTITY_MISMATCH", false));
+    }
+
+    @Test
+    void stripsAcademicYearPrefixAndBuildsMissingSmuEmailFromUsername() throws IOException {
+        Path zip = tempDirectory.resolve("2023-2024-chee.teo.2022.zip");
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (Map.Entry<String, String> requirement
+                : SubmissionPreparationService.requiredJavaFiles().entrySet()) {
+            entries.put(requirement.getValue() + "/" + requirement.getKey(),
+                    javaSource("// Name: Chee Teo\n"));
+        }
+        createZip(zip, entries);
+
+        SubmissionValidationResult result = service.prepareBatch(
+                zip, tempDirectory.resolve("normalized")).getFirst();
+
+        assertEquals("chee.teo.2022", result.username());
         assertTrue(result.isReadyForGrading(), result.findings().toString());
-        assertTrue(hasFinding(result, "WRONG_SUBMISSION_NAME", true));
+        assertTrue(hasFinding(result, "MISSING_HEADER_EMAIL", true));
+        String repaired = Files.readString(result.normalizedRoot().resolve("Q1/Q1a.java"));
+        assertTrue(repaired.contains("Student email: chee.teo.2022@smu.edu.sg"));
     }
 
     @Test
