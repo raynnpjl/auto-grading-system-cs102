@@ -37,6 +37,7 @@
                     </VBox>
                     <Region HBox.hgrow="ALWAYS"/>
                     <Button fx:id="testerImportButton" text="Import folder" minWidth="120"
+                            styleClass="import-button"
                             onAction="#importTesterFiles"/>
                 </HBox>
                 <Label text="Select the Tester-Files folder."
@@ -68,6 +69,7 @@
                     </VBox>
                     <Region HBox.hgrow="ALWAYS"/>
                     <Button fx:id="submissionImportButton" text="Import folder" minWidth="120"
+                            styleClass="import-button"
                             onAction="#importSubmissions"/>
                 </HBox>
                 <Label text="Select the submission folder."

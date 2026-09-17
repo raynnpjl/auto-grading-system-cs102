@@ -102,7 +102,8 @@ public final class MainViewController {
             testerReport = "Tester-file validation failed\n"
                     + "=============================\n"
                     + safeMessage(task.getException())
-                    + "\n";
+                    + "\n  Next step for marker: Confirm that the selected folder is readable and contains "
+                    + "the official tester sources, then import it again.\n";
             refreshReports();
             statusText.setText("Validation failed");
             consoleStatus.setText("Tester import not completed");
@@ -152,7 +153,9 @@ public final class MainViewController {
             submissionReport = "Submission validation failed\n"
                     + "============================\n"
                     + safeMessage(failure)
-                    + "\n\nNo source files were changed. Select another folder and try again.\n";
+                    + "\n  Next step for marker: Confirm that the selected folder is readable, repair or "
+                    + "re-extract it if necessary, then import it again.\n\n"
+                    + "No source files were changed.\n";
             refreshReports();
             statusText.setText("Validation failed");
             consoleStatus.setText("Import not completed");
@@ -195,6 +198,10 @@ public final class MainViewController {
                 .append("Needs attention: ").append(errors).append('\n')
                 .append("Automatic corrections: ").append(corrections).append('\n')
                 .append("Normalized workspace: ").append(workspace.toAbsolutePath()).append("\n\n");
+        if (errors > 0) {
+            report.append("MARKER ACTION REQUIRED\n")
+                    .append("Follow the Next step shown under each ERROR, then import the corrected copy again.\n\n");
+        }
 
         for (SubmissionValidationResult result : results) {
             report.append('[').append(result.username()).append("] ")
@@ -204,12 +211,7 @@ public final class MainViewController {
                 report.append("  OK - structure, required files, and headers are valid.\n");
             } else {
                 for (SubmissionFinding finding : result.findings()) {
-                    report.append("  ")
-                            .append(finding.severity())
-                            .append(finding.corrected() ? " (corrected)" : "")
-                            .append(" - ")
-                            .append(finding.message())
-                            .append('\n');
+                    appendFinding(report, finding);
                 }
             }
             report.append('\n');
@@ -244,6 +246,10 @@ public final class MainViewController {
                 .append("Folder: ").append(result.source().toAbsolutePath()).append('\n')
                 .append("Required files found: ").append(result.testerFiles().size())
                 .append('/').append(TesterFileValidationService.requiredTesterFiles().size()).append("\n\n");
+        if (result.hasErrors()) {
+            report.append("MARKER ACTION REQUIRED\n")
+                    .append("Follow the Next step shown under each ERROR, then import Tester-Files again.\n\n");
+        }
         appendFindings(report, result.findings());
         testerReport = report.toString();
         refreshReports();
@@ -280,13 +286,21 @@ public final class MainViewController {
 
     private void appendFindings(StringBuilder report, List<SubmissionFinding> findings) {
         for (SubmissionFinding finding : findings) {
-            report.append("  ")
-                    .append(finding.severity())
-                    .append(finding.corrected() ? " (corrected)" : "")
-                    .append(" - ")
-                    .append(finding.message())
-                    .append('\n');
+            appendFinding(report, finding);
         }
+    }
+
+    private void appendFinding(StringBuilder report, SubmissionFinding finding) {
+        report.append("  ")
+                .append(finding.severity())
+                .append(finding.corrected() ? " (corrected)" : "")
+                .append(" - ")
+                .append(finding.message())
+                .append('\n');
+        finding.nextStep().ifPresent(nextStep -> report
+                .append("    Next step for marker: ")
+                .append(nextStep)
+                .append('\n'));
     }
 
     private void refreshReports() {

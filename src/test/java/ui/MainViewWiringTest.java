@@ -1,6 +1,7 @@
 package ui;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -15,6 +16,7 @@ class MainViewWiringTest {
     @Test
     void bothFolderButtonsAreConnectedToControllerActions() throws Exception {
         String fxml = readMainView();
+        String styles = readResource("/ui/styles.css");
 
         assertAll(
                 () -> assertTrue(fxml.contains("fx:controller=\"ui.MainViewController\"")),
@@ -22,6 +24,9 @@ class MainViewWiringTest {
                 () -> assertTrue(fxml.contains("onAction=\"#importTesterFiles\"")),
                 () -> assertTrue(fxml.contains("fx:id=\"submissionImportButton\"")),
                 () -> assertTrue(fxml.contains("onAction=\"#importSubmissions\"")),
+                () -> assertEquals(2, countOccurrences(fxml, "styleClass=\"import-button\"")),
+                () -> assertTrue(styles.contains(".import-button:hover")),
+                () -> assertTrue(styles.contains(".import-button:pressed")),
                 () -> assertFalse(Pattern.compile("<TreeView[^>]*mouseTransparent=\"true\"")
                         .matcher(fxml)
                         .find()),
@@ -34,11 +39,19 @@ class MainViewWiringTest {
     }
 
     private String readMainView() throws IOException {
-        try (var input = MainViewWiringTest.class.getResourceAsStream("/ui/main-view.fxml")) {
+        return readResource("/ui/main-view.fxml");
+    }
+
+    private String readResource(String resource) throws IOException {
+        try (var input = MainViewWiringTest.class.getResourceAsStream(resource)) {
             if (input == null) {
-                throw new IOException("main-view.fxml was not found on the test classpath");
+                throw new IOException(resource + " was not found on the test classpath");
             }
             return new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private int countOccurrences(String text, String value) {
+        return text.split(Pattern.quote(value), -1).length - 1;
     }
 }
