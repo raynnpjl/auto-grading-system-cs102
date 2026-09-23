@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import grading.assessment.AssessmentDefinition;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -15,6 +16,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class SubmissionPreparationServiceTest {
 
@@ -41,7 +44,7 @@ class SubmissionPreparationServiceTest {
         SubmissionValidationResult result = results.getFirst();
         assertTrue(result.isReadyForGrading(), result.findings().toString());
         assertEquals("alice.2026", result.username());
-        assertEquals(6, result.javaFiles().size());
+        assertEquals(6, result.questionFiles().values().stream().mapToInt(files -> files.sources().size()).sum());
         assertFalse(result.hasErrors());
     }
 
@@ -56,6 +59,8 @@ class SubmissionPreparationServiceTest {
                 "RenameToYourUsername/Q2/Q2b.java", javaSource(""),
                 "RenameToYourUsername/Q3/Q3.java", javaSource(""),
                 "RenameToYourUsername/Q3/ShapeComparator.java", javaSource(""));
+        entries = new LinkedHashMap<>(entries);
+        addDependencies(entries, "");
         createZip(zip, entries);
 
         SubmissionValidationResult result = service.prepareBatch(
@@ -72,11 +77,14 @@ class SubmissionPreparationServiceTest {
     @Test
     void movesFilesDumpedDirectlyIntoQuestionFolders() throws IOException {
         Path student = Files.createDirectory(tempDirectory.resolve("carol.2026"));
-        for (String fileName : SubmissionPreparationService.requiredJavaFiles().keySet()) {
+        for (String fileName : AssessmentDefinition.sourceFiles().keySet()) {
             Files.writeString(student.resolve(fileName), javaSource(
                     "// Name: Carol Example\n// Email: carol.2026@school.example\n"));
         }
 
+        for (String filename : dependencies().keySet()) {
+            Files.writeString(student.resolve(filename), "support bytes");
+        }
         SubmissionValidationResult result = service.prepareBatch(
                 student, tempDirectory.resolve("normalized")).getFirst();
 
@@ -127,6 +135,8 @@ class SubmissionPreparationServiceTest {
                 "// Name: Erin Example\n// Email: erin.2026@school.example\n"));
         entries.put("erin.2026/Q3/ShapeComparator.java", javaSource(
                 "// Name: Erin Example\n// Email: erin.2026@school.example\n"));
+        entries = new LinkedHashMap<>(entries);
+        addDependencies(entries, "");
         createZip(zip, entries);
 
         SubmissionValidationResult result = service.prepareBatch(
@@ -171,10 +181,12 @@ class SubmissionPreparationServiceTest {
         Path zip = tempDirectory.resolve("2023-2024-chee.teo.2022.zip");
         Map<String, String> entries = new LinkedHashMap<>();
         for (Map.Entry<String, String> requirement
-                : SubmissionPreparationService.requiredJavaFiles().entrySet()) {
+                : AssessmentDefinition.sourceFiles().entrySet()) {
             entries.put(requirement.getValue() + "/" + requirement.getKey(),
                     javaSource("// Name: Chee Teo\n"));
         }
+        entries = new LinkedHashMap<>(entries);
+        addDependencies(entries, "");
         createZip(zip, entries);
 
         SubmissionValidationResult result = service.prepareBatch(
@@ -213,17 +225,108 @@ class SubmissionPreparationServiceTest {
                 student, tempDirectory.resolve("normalized")).getFirst();
 
         assertTrue(result.hasErrors());
-        assertEquals(6, result.javaFiles().size());
+        assertEquals(6, result.questionFiles().values().stream().mapToInt(files -> files.sources().size()).sum());
         assertTrue(hasFinding(result, "HEADER_UNREADABLE", false));
         assertTrue(Files.exists(result.normalizedRoot().resolve("Q3/Q3.java")));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesOnlyRequiredDependenciesThroughImportAndCorrection(boolean zipped) throws IOException {
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (var entry : AssessmentDefinition.sourceFiles().entrySet()) {
+            entries.put("alice.2026/" + entry.getValue() + "/" + entry.getKey(), javaSource(COMPLETE_HEADER));
+        }
+        addDependencies(entries, "alice.2026/");
+        entries.put("alice.2026/Q1/Q1a.class", "stale answer");
+        entries.put("alice.2026/Q1/Q1aTester.class", "stale tester");
+        entries.put("alice.2026/Q2/is442.txt", "must remain absent for the missing-file test");
+        entries.put("alice.2026/Q2/unrelated.txt", "unrelated data");
+        Path input;
+        if (zipped) {
+            input = tempDirectory.resolve("alice.2026.zip");
+            createZip(input, entries);
+        } else {
+            input = tempDirectory.resolve("alice.2026");
+            for (var entry : entries.entrySet()) {
+                Path file = tempDirectory.resolve(entry.getKey());
+                Files.createDirectories(file.getParent());
+                Files.writeString(file, entry.getValue());
+            }
+        }
+
+        SubmissionValidationResult prepared = service.prepareBatch(input, tempDirectory.resolve("normalized")).getFirst();
+        SubmissionValidationResult corrected = new SubmissionCorrectionService(service).applyIdentity(prepared,
+                new StudentIdentity("alice.2026", "Alice Example", "alice.2026@school.example"),
+                tempDirectory.resolve("corrected"));
+
+        for (SubmissionValidationResult result : List.of(prepared, corrected)) {
+            assertTrue(result.isReadyForGrading(), result.findings().toString());
+            for (var entry : dependencies().entrySet()) {
+                assertEquals("support bytes: " + entry.getKey(), Files.readString(
+                        result.normalizedRoot().resolve(entry.getValue()).resolve(entry.getKey())));
+            }
+            assertFalse(Files.exists(result.normalizedRoot().resolve("Q1/Q1a.class")));
+            assertFalse(Files.exists(result.normalizedRoot().resolve("Q1/Q1aTester.class")));
+            assertFalse(Files.exists(result.normalizedRoot().resolve("Q2/is442.txt")));
+            assertFalse(Files.exists(result.normalizedRoot().resolve("Q2/unrelated.txt")));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Q2/personstester.txt", "Q2/studentstester.txt", "Q2/DataException.class",
+        "Q3/Shape.class", "Q3/Circle.class", "Q3/Rectangle.class"})
+    void blocksGradingWhenAnyRequiredDependencyIsMissing(String relative) throws IOException {
+        Path student = Files.createDirectory(tempDirectory.resolve("alice.2026"));
+        createRequiredFiles(student, COMPLETE_HEADER);
+        Files.delete(student.resolve(relative));
+
+        SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized")).getFirst();
+
+        assertFalse(result.isReadyForGrading());
+        assertTrue(result.findings().stream().anyMatch(finding -> finding.code().equals("MISSING_DEPENDENCY")
+                && finding.message().contains(relative) && finding.nextStep().isPresent()), result.findings().toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Q2/personstester.txt", "Q2/DataException.class"})
+    void reportsUnreadableDependencies(String relative) throws IOException {
+        Path student = Files.createDirectory(tempDirectory.resolve("alice.2026"));
+        createRequiredFiles(student, COMPLETE_HEADER);
+        Path dependency = student.resolve(relative);
+        org.junit.jupiter.api.Assumptions.assumeTrue(Files.getFileStore(dependency).supportsFileAttributeView("posix"));
+        var permissions = Files.getPosixFilePermissions(dependency);
+        try {
+            Files.setPosixFilePermissions(dependency, java.util.Set.of());
+            org.junit.jupiter.api.Assumptions.assumeFalse(Files.isReadable(dependency), "Privileged user can still read this file");
+            SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized")).getFirst();
+            assertFalse(result.isReadyForGrading());
+            assertTrue(hasFinding(result, "DEPENDENCY_UNREADABLE", false), result.findings().toString());
+        } finally {
+            Files.setPosixFilePermissions(dependency, permissions);
+        }
+    }
+
     private void createRequiredFiles(Path root, String header) throws IOException {
+        for (var entry : dependencies().entrySet()) {
+            Path folder = Files.createDirectories(root.resolve(entry.getValue()));
+            Files.writeString(folder.resolve(entry.getKey()), "support bytes: " + entry.getKey());
+        }
         for (Map.Entry<String, String> requirement
-                : SubmissionPreparationService.requiredJavaFiles().entrySet()) {
+                : AssessmentDefinition.sourceFiles().entrySet()) {
             Path question = Files.createDirectories(root.resolve(requirement.getValue()));
             Files.writeString(question.resolve(requirement.getKey()), javaSource(header));
         }
+    }
+
+    private Map<String, String> dependencies() {
+        Map<String, String> files = new LinkedHashMap<>(AssessmentDefinition.supportClasses());
+        files.putAll(AssessmentDefinition.runtimeFiles());
+        return files;
+    }
+
+    private void addDependencies(Map<String, String> entries, String prefix) {
+        dependencies().forEach((name, folder) -> entries.put(prefix + folder + "/" + name, "support bytes: " + name));
     }
 
     private String javaSource(String header) {

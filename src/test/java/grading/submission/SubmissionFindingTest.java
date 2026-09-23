@@ -11,6 +11,8 @@ class SubmissionFindingTest {
     @ParameterizedTest
     @ValueSource(strings = {
         "MISSING_JAVA_FILE",
+        "MISSING_DEPENDENCY",
+        "DEPENDENCY_UNREADABLE",
         "MISSING_HEADER_EMAIL",
         "USERNAME_UNKNOWN",
         "HEADER_IDENTITY_MISMATCH",

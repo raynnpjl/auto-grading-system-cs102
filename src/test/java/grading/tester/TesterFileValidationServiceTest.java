@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import grading.assessment.AssessmentDefinition;
 import grading.submission.SubmissionFinding;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +45,7 @@ class TesterFileValidationServiceTest {
 
     @Test
     void rejectsWrongFilenameCase() throws IOException {
-        for (String fileName : TesterFileValidationService.requiredTesterFiles()) {
+        for (String fileName : AssessmentDefinition.testerFiles()) {
             if (!fileName.equals("Q3Tester.java")) {
                 String className = fileName.substring(0, fileName.length() - ".java".length());
                 writeTester(tempDirectory, fileName, className, true);
@@ -59,7 +60,7 @@ class TesterFileValidationServiceTest {
     }
 
     private void createAllTesterFiles(Path folder) throws IOException {
-        for (String fileName : TesterFileValidationService.requiredTesterFiles()) {
+        for (String fileName : AssessmentDefinition.testerFiles()) {
             String className = fileName.substring(0, fileName.length() - ".java".length());
             writeTester(folder, fileName, className, true);
         }

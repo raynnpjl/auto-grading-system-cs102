@@ -1,5 +1,6 @@
 package grading.tester;
 
+import grading.assessment.AssessmentDefinition;
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionFinding;
 import java.nio.file.Path;
@@ -23,6 +24,6 @@ public record TesterValidationResult(
     }
 
     public boolean isValid() {
-        return !hasErrors() && testerFiles.size() == TesterFileValidationService.requiredTesterFiles().size();
+        return !hasErrors() && testerFiles.keySet().equals(java.util.Set.copyOf(AssessmentDefinition.testerFiles()));
     }
 }

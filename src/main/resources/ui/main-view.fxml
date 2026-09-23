@@ -18,7 +18,7 @@
     <HBox alignment="CENTER_LEFT" spacing="24">
         <VBox spacing="6">
             <Label text="AGS" styleClass="title"/>
-            <Label text="Auto Grading System Example1"
+            <Label text="Auto Grading System"
                    styleClass="muted"/>
         </VBox>
         <Region HBox.hgrow="ALWAYS"/>
@@ -101,7 +101,8 @@
             <Label fx:id="runReadinessText" text="Import both folders to get started." styleClass="muted"/>
         </VBox>
         <Region HBox.hgrow="ALWAYS"/>
-        <Button text="Run grading" disable="true" minWidth="166" graphicTextGap="10" styleClass="run-button">
+        <Button fx:id="runGradingButton" text="Run grading" onAction="#runGrading"
+                disable="true" minWidth="166" graphicTextGap="10" styleClass="run-button">
             <graphic>
                 <SVGPath content="M 0 0 L 0 12 L 9 6 Z" styleClass="play-icon"/>
             </graphic>

@@ -30,6 +30,8 @@ class MainViewWiringTest {
                 () -> assertTrue(fxml.contains("onAction=\"#importTesterFiles\"")),
                 () -> assertTrue(fxml.contains("fx:id=\"submissionImportButton\"")),
                 () -> assertTrue(fxml.contains("onAction=\"#importSubmissions\"")),
+                () -> assertTrue(fxml.contains("fx:id=\"runGradingButton\"")),
+                () -> assertTrue(fxml.contains("onAction=\"#runGrading\"")),
                 () -> assertEquals(2, countOccurrences(fxml, "styleClass=\"import-button\"")),
                 () -> assertTrue(styles.contains(".import-button:hover")),
                 () -> assertTrue(styles.contains(".import-button:pressed")),
@@ -44,6 +46,9 @@ class MainViewWiringTest {
                         .isAnnotationPresent(FXML.class)),
                 () -> assertTrue(MainViewController.class
                         .getDeclaredMethod("importSubmissions")
+                        .isAnnotationPresent(FXML.class)),
+                () -> assertTrue(MainViewController.class
+                        .getDeclaredMethod("runGrading")
                         .isAnnotationPresent(FXML.class)),
                 () -> assertTrue(MainViewController.class
                         .getDeclaredMethod("resolveSubmissionIssues")

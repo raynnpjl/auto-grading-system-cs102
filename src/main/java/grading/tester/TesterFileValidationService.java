@@ -1,5 +1,7 @@
 package grading.tester;
 
+import grading.assessment.AssessmentDefinition;
+
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionFinding;
 import java.io.IOException;
@@ -19,18 +21,8 @@ import java.util.stream.Stream;
 public final class TesterFileValidationService {
 
     private static final long MAX_TESTER_FILE_BYTES = 2L * 1024 * 1024;
-    private static final List<String> REQUIRED_TESTER_FILES = List.of(
-            "Q1aTester.java",
-            "Q1bTester.java",
-            "Q2aTester.java",
-            "Q2bTester.java",
-            "Q3Tester.java");
     private static final Pattern MAIN_METHOD_PATTERN = Pattern.compile(
             "\\bstatic\\s+void\\s+main\\s*\\(");
-
-    public static List<String> requiredTesterFiles() {
-        return REQUIRED_TESTER_FILES;
-    }
 
     public TesterValidationResult validate(Path folder) throws IOException {
         if (folder == null || !Files.isDirectory(folder) || !Files.isReadable(folder)) {
@@ -48,7 +40,7 @@ public final class TesterFileValidationService {
 
         List<SubmissionFinding> findings = new ArrayList<>();
         Map<String, Path> validatedFiles = new LinkedHashMap<>();
-        for (String requiredFile : REQUIRED_TESTER_FILES) {
+        for (String requiredFile : AssessmentDefinition.testerFiles()) {
             List<Path> matches = javaFiles.stream()
                     .filter(path -> path.getFileName().toString().equalsIgnoreCase(requiredFile))
                     .toList();
@@ -79,7 +71,7 @@ public final class TesterFileValidationService {
         }
 
         long extraFiles = javaFiles.stream()
-                .filter(path -> REQUIRED_TESTER_FILES.stream().noneMatch(
+                .filter(path -> AssessmentDefinition.testerFiles().stream().noneMatch(
                         required -> required.equalsIgnoreCase(path.getFileName().toString())))
                 .count();
         if (extraFiles > 0) {

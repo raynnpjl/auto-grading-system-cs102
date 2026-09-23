@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import grading.AssessmentFixtures;
+import grading.assessment.AssessmentDefinition;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -36,7 +38,7 @@ class SubmissionCorrectionServiceTest {
         assertTrue(corrected.isReadyForGrading(), corrected.findings().toString());
         assertTrue(corrected.findings().stream().anyMatch(
                 finding -> finding.code().equals("IDENTITY_CONFIRMED") && finding.corrected()));
-        for (Path javaFile : corrected.javaFiles().values()) {
+        for (Path javaFile : corrected.questionFiles().values().stream().flatMap(files -> files.sources().stream()).toList()) {
             String source = Files.readString(javaFile);
             assertTrue(source.contains("Verified student username: jane.tan.2026"));
             assertTrue(source.contains("Verified student name: Jane Tan"));
@@ -54,9 +56,10 @@ class SubmissionCorrectionServiceTest {
     }
 
     private void createRequiredFilesWithConflictingEmails(Path root) throws IOException {
+        AssessmentFixtures.writeDependencies(root);
         int index = 0;
         for (Map.Entry<String, String> requirement
-                : SubmissionPreparationService.requiredJavaFiles().entrySet()) {
+                : AssessmentDefinition.sourceFiles().entrySet()) {
             Path question = Files.createDirectories(root.resolve(requirement.getValue()));
             String email = index++ % 2 == 0
                     ? "jane.tan.2026@school.example"
