@@ -220,6 +220,49 @@ class JavaGradingServiceTest {
     }
 
     @Test
+    void retainsCompletedPassesWhenALaterStudentCallLoops() throws Exception {
+        Path tester = copySample("Q1aTester.java");
+        Path student = write("Q1a.java", """
+                import java.util.*;
+                public class Q1a {
+                    private static int calls;
+                    public static ArrayList<String> getIsogramWords(ArrayList<String> inputs) {
+                        if (++calls == 1) return inputs;
+                        while (true) {}
+                    }
+                }
+                """);
+        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1));
+        QuestionGradingResult result = limited.gradeQuestion(
+                new QuestionFiles(List.of(student), List.of(), List.of()), tester);
+        assertEquals(QuestionGradingResult.Status.EXECUTION_TIMEOUT, result.status());
+        assertEquals(1, result.score());
+        assertEquals(1, result.passedTests());
+        assertEquals(0, result.failedTests());
+        StudentGradingResult totals = new StudentGradingResult("any-student", List.of(result));
+        assertEquals(1, totals.totalScore());
+        assertEquals(1.0, totals.questionScores().get("Q1"));
+        assertEquals(2, runTester("System.out.println(2);", limited).score());
+    }
+
+    @Test
+    void timeoutCountsOnlyExactCompletedVerdictsAndIgnoresNumericOutput() throws Exception {
+        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1));
+        QuestionGradingResult result = runTester("""
+                System.out.println("Passed");
+                System.out.println("Failed -> Exception");
+                System.out.println("Not Passed");
+                System.out.println("99.0");
+                System.err.println("Passed");
+                while (true) {}
+                """, limited);
+        assertEquals(QuestionGradingResult.Status.EXECUTION_TIMEOUT, result.status());
+        assertEquals(1, result.score());
+        assertEquals(1, result.passedTests());
+        assertEquals(1, result.failedTests());
+    }
+
+    @Test
     void boundsCompilationTimeToo() throws Exception {
         JavaGradingService limited = new JavaGradingService(Duration.ofNanos(1), Duration.ofSeconds(1));
         QuestionGradingResult result = runTester("System.out.println(1);", limited);

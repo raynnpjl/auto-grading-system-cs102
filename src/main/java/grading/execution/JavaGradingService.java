@@ -108,6 +108,19 @@ public final class JavaGradingService {
                 "-cp", compilation.classesDirectory().toString(),
                 compilation.testerClass()), compilation.workspace(), executionTimeout);
         logProcess(compilation.questionId(), "Execution", execution);
+        List<String> lines = execution.stdout().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+        int passed = (int) lines.stream().filter("Passed"::equals).count();
+        int failed = (int) lines.stream().filter(line -> line.equals("Failed") || line.startsWith("Failed ->")).count();
+
+        // AI-assisted fix (ChatGPT): preserve completed unit-mark tests on timeout.
+        // The supplied assessment testers award one mark per exact "Passed" line.
+        // Keep the timeout status: remaining tests were not completed or awarded marks.
+        if (execution.status() == ProcessResult.Status.TIMED_OUT) {
+            return new QuestionGradingResult(compilation.questionId(), QuestionGradingResult.Status.EXECUTION_TIMEOUT,
+                    passed, passed, failed, compiler, execution,
+                    "Execution timed out. Retained " + passed
+                            + " mark(s) from completed one-mark tests; unfinished tests earn no marks.");
+        }
         if (!execution.succeeded()) {
             QuestionGradingResult.Status status = switch (execution.status()) {
                 case TIMED_OUT -> QuestionGradingResult.Status.EXECUTION_TIMEOUT;
@@ -117,7 +130,6 @@ public final class JavaGradingService {
             return failure(compilation.questionId(), status, compiler, execution, "Tester did not finish successfully.");
         }
 
-        List<String> lines = execution.stdout().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
         double score;
         try {
             score = Double.parseDouble(lines.isEmpty() ? "" : lines.getLast());
@@ -128,8 +140,6 @@ public final class JavaGradingService {
             return failure(compilation.questionId(), QuestionGradingResult.Status.INVALID_SCORE, compiler, execution,
                     "Tester must print a finite, nonnegative score as its last nonblank stdout line.");
         }
-        int passed = (int) lines.stream().filter("Passed"::equals).count();
-        int failed = (int) lines.stream().filter(line -> line.equals("Failed") || line.startsWith("Failed ->")).count();
         return new QuestionGradingResult(compilation.questionId(), QuestionGradingResult.Status.GRADED,
                 score, passed, failed, compiler, execution, "Graded using the tester's final score.");
     }

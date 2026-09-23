@@ -1,6 +1,6 @@
 package grading.execution;
 
-// non-graded results earn zero
+// Timed-out executions may retain credit for completed one-mark tests; other failures earn zero.
 // process results are null when that stage was not started
 public record QuestionGradingResult(
         String questionId,
