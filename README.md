@@ -24,56 +24,6 @@ mvnw.cmd clean verify
 mvnw.cmd javafx:run
 ```
 
-## Submission validation
-
-Use **Import folder** under **Student submissions** to select either a single
-student folder or a batch folder containing student folders and ZIP files. The
-application checks the required assessment layout:
-
-```text
-username/
-  Q1/Q1a.java
-  Q1/Q1b.java
-  Q2/Q2a.java
-  Q2/Q2b.java
-  Q3/Q3.java
-  Q3/ShapeComparator.java
-```
-
-The import also checks leading Java comments for a student name and email. It
-creates corrected copies in a temporary normalized workspace and leaves the
-original submissions unchanged. Common folder-name, hierarchy, and incomplete
-header issues are corrected when the student identity can be established. Any
-unresolved issue is shown in **Findings & reports**, and one malformed
-submission does not stop the rest of the batch.
-
-Submission archives prefixed with an academic year, such as
-`2023-2024-chee.teo.2022.zip`, are normalized to the username
-`chee.teo.2022`. Because the username is the student's email prefix, a missing
-header email is filled automatically as `username@smu.edu.sg`.
-
-When identity information is missing or inconsistent, a guided bulk form asks
-the marker for each affected student's verified username, name, and email. The
-application validates those values, updates all Java headers in normalized
-copies, and reruns validation automatically. The **Resolve issues** button can
-reopen this form if it is dismissed.
-
-The **Tester files** import validates `Q1aTester.java`, `Q1bTester.java`,
-`Q2aTester.java`, `Q2bTester.java`, and `Q3Tester.java`, including their public
-class names and `main` methods.
-
-Run the validation tests with:
-
-```bat
-mvnw.cmd test
-```
-
-On macOS, select an installed JDK 21 before running these commands:
-
-```sh
-export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
-```
-
 ## Maven layout
 
 - `src/main/java`: application source.
