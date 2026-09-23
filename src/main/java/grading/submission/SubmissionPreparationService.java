@@ -1,5 +1,7 @@
 package grading.submission;
 
+import grading.assessment.AssessmentDefinition;
+import grading.assessment.QuestionFiles;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,11 +46,6 @@ public final class SubmissionPreparationService {
     private static final Pattern ACADEMIC_YEAR_PREFIX_PATTERN = Pattern.compile(
             "^(?:19|20)\\d{2}-(?:19|20)\\d{2}-(.+)$");
     private static final Pattern TRAILING_YEAR_PATTERN = Pattern.compile("[._-](?:19|20)\\d{2}$");
-    private static final Map<String, String> REQUIRED_JAVA_FILES = createRequirements();
-
-    public static Map<String, String> requiredJavaFiles() {
-        return REQUIRED_JAVA_FILES;
-    }
 
     /**
      * Processes either a single ZIP/folder or a folder containing multiple submissions.
@@ -123,15 +120,25 @@ public final class SubmissionPreparationService {
             inspectHierarchy(submission, searchableRoot, zipped, username, findings);
             Map<String, Path> normalizedFiles = normalizeRequiredFiles(
                     searchableRoot, normalizedRoot, zipped, username, discoveredIdentity, findings);
+            Map<String, Path> dependencies = normalizeDependencies(searchableRoot, normalizedRoot, findings);
             reportUnexpectedJavaFiles(javaFiles, normalizedFiles.keySet(), findings);
+
+            Map<String, QuestionFiles> questions = new LinkedHashMap<>();
+            for (var question : AssessmentDefinition.QUESTIONS) {
+                questions.put(question.id(), new QuestionFiles(
+                        selectedFiles(question.sources(), normalizedFiles),
+                        selectedFiles(question.supportClasses(), dependencies),
+                        selectedFiles(question.runtimeFiles(), dependencies)));
+            }
 
             if (normalizedFiles.isEmpty()) {
                 deleteTree(normalizedRoot);
                 normalizedRoot = null;
+                questions.clear();
             }
 
             return new SubmissionValidationResult(
-                    submission, username, normalizedRoot, normalizedFiles, findings);
+                    submission, username, normalizedRoot, questions, findings);
         } finally {
             try {
                 deleteTree(stagingRoot);
@@ -168,7 +175,7 @@ public final class SubmissionPreparationService {
     }
 
     private boolean hasSubmissionContentAtTopLevel(Path directory) throws IOException {
-        for (String question : Set.copyOf(REQUIRED_JAVA_FILES.values())) {
+        for (String question : Set.copyOf(AssessmentDefinition.sourceFiles().values())) {
             if (findChildIgnoreCase(directory, question).filter(Files::isDirectory).isPresent()) {
                 return true;
             }
@@ -215,7 +222,7 @@ public final class SubmissionPreparationService {
                     true));
         }
 
-        for (String question : Set.copyOf(REQUIRED_JAVA_FILES.values())) {
+        for (String question : Set.copyOf(AssessmentDefinition.sourceFiles().values())) {
             boolean exists = findDirectoriesIgnoreCase(searchableRoot, question).stream().findAny().isPresent();
             if (!exists) {
                 findings.add(new SubmissionFinding(
@@ -236,7 +243,7 @@ public final class SubmissionPreparationService {
             List<SubmissionFinding> findings) throws IOException {
         Map<String, Path> normalizedFiles = new LinkedHashMap<>();
 
-        for (Map.Entry<String, String> requirement : REQUIRED_JAVA_FILES.entrySet()) {
+        for (Map.Entry<String, String> requirement : AssessmentDefinition.sourceFiles().entrySet()) {
             String fileName = requirement.getKey();
             String question = requirement.getValue();
             List<Path> candidates = findFilesIgnoreCase(searchableRoot, fileName);
@@ -512,6 +519,41 @@ public final class SubmissionPreparationService {
         }
     }
 
+    private Map<String, Path> normalizeDependencies(Path source, Path normalizedRoot,
+            List<SubmissionFinding> findings) throws IOException {
+        Map<String, String> requirements = new LinkedHashMap<>(AssessmentDefinition.supportClasses());
+        requirements.putAll(AssessmentDefinition.runtimeFiles());
+        Map<String, Path> normalized = new LinkedHashMap<>();
+        for (var entry : requirements.entrySet()) {
+            List<Path> candidates = findFilesIgnoreCase(source, entry.getKey());
+            String relative = entry.getValue() + "/" + entry.getKey();
+            if (candidates.isEmpty()) {
+                findings.add(new SubmissionFinding(FindingSeverity.ERROR, "MISSING_DEPENDENCY",
+                        "Required grading dependency " + relative + " is missing.", false));
+                continue;
+            }
+            candidates.sort(preferredCandidateOrder(entry.getValue()));
+            if (candidates.size() > 1) {
+                findings.add(new SubmissionFinding(FindingSeverity.WARNING, "DUPLICATE_DEPENDENCY",
+                        "Found multiple copies of " + entry.getKey() + "; used "
+                                + source.relativize(candidates.getFirst()) + ".", false));
+            }
+            try {
+                Path folder = Files.createDirectories(normalizedRoot.resolve(entry.getValue()));
+                Path copy = Files.copy(candidates.getFirst(), folder.resolve(entry.getKey()));
+                normalized.put(entry.getKey(), copy);
+            } catch (IOException exception) {
+                findings.add(new SubmissionFinding(FindingSeverity.ERROR, "DEPENDENCY_UNREADABLE",
+                        "Could not copy " + relative + ": " + safeMessage(exception), false));
+            }
+        }
+        return normalized;
+    }
+
+    private static List<Path> selectedFiles(List<String> names, Map<String, Path> files) {
+        return names.stream().filter(files::containsKey).map(files::get).toList();
+    }
+
     private List<Path> findJavaFiles(Path root) throws IOException {
         try (Stream<Path> paths = Files.walk(root)) {
             return paths
@@ -721,17 +763,6 @@ public final class SubmissionPreparationService {
     private String safeMessage(Throwable exception) {
         String message = exception.getMessage();
         return message == null || message.isBlank() ? exception.getClass().getSimpleName() : message;
-    }
-
-    private static Map<String, String> createRequirements() {
-        Map<String, String> requirements = new LinkedHashMap<>();
-        requirements.put("Q1a.java", "Q1");
-        requirements.put("Q1b.java", "Q1");
-        requirements.put("Q2a.java", "Q2");
-        requirements.put("Q2b.java", "Q2");
-        requirements.put("Q3.java", "Q3");
-        requirements.put("ShapeComparator.java", "Q3");
-        return Map.copyOf(requirements);
     }
 
     private record HeaderIdentity(Optional<String> name, Optional<String> email) {

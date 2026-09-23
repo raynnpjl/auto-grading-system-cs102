@@ -6,19 +6,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.List;
 
 // Owns the temporary workspace. Close after execution, including failed compilations.
 public record CompilationResult(
         String questionId,
         String testerClass,
         Path workspace,
-        List<Path> supportClasspath,
         ProcessResult process) implements AutoCloseable {
-
-    public CompilationResult {
-        supportClasspath = List.copyOf(supportClasspath);
-    }
 
     public Path classesDirectory() {
         return workspace.resolve("classes");

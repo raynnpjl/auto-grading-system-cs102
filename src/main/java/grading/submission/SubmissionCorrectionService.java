@@ -51,7 +51,7 @@ public final class SubmissionCorrectionService {
                 existing.source(),
                 identity.username(),
                 result.normalizedRoot(),
-                result.javaFiles(),
+                result.questionFiles(),
                 findings);
     }
 

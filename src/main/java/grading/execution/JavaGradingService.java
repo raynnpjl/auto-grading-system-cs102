@@ -1,10 +1,9 @@
 package grading.execution;
 
-import grading.submission.SubmissionPreparationService;
+import grading.assessment.AssessmentDefinition;
+import grading.assessment.QuestionFiles;
 import grading.submission.SubmissionValidationResult;
-import grading.tester.TesterFileValidationService;
 import grading.tester.TesterValidationResult;
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,66 +11,71 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.regex.Pattern;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 // Compiles and grades default-package assessment sources
 public final class JavaGradingService {
 
-    private static final Pattern TESTER_FILENAME = Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*Tester\\.java");
     private final Duration compilationTimeout;
     private final Duration executionTimeout;
-    private final List<Path> supportClasspath;
+    private final Consumer<String> log;
     private final BoundedProcessRunner runner = new BoundedProcessRunner();
 
     public JavaGradingService() {
-        this(Duration.ofSeconds(30), Duration.ofSeconds(5), List.of());
+        this(System.out::println);
     }
 
-    public JavaGradingService(Duration compilationTimeout, Duration executionTimeout, List<Path> supportClasspath) {
+    public JavaGradingService(Consumer<String> log) {
+        this(Duration.ofSeconds(30), Duration.ofSeconds(5), log);
+    }
+
+    public JavaGradingService(Duration compilationTimeout, Duration executionTimeout) {
+        this(compilationTimeout, executionTimeout, System.out::println);
+    }
+
+    public JavaGradingService(Duration compilationTimeout, Duration executionTimeout,
+            Consumer<String> log) {
         this.compilationTimeout = requirePositive(compilationTimeout);
         this.executionTimeout = requirePositive(executionTimeout);
-        this.supportClasspath = supportClasspath.stream().map(path -> path.toAbsolutePath().normalize()).toList();
-        for (Path entry : this.supportClasspath) {
-            if (!Files.isReadable(entry) || (!Files.isDirectory(entry) && !Files.isRegularFile(entry))) {
-                throw new IllegalArgumentException("Unreadable support classpath entry: " + entry);
-            }
-        }
+        this.log = Objects.requireNonNull(log, "log");
     }
 
     /**
      * Compiles a tester together with one student's question sources. The caller owns the returned
      * workspace and must close it, even if compilation fails. Source files are never modified.
      */
-    public CompilationResult compile(List<Path> studentFiles, Path testerFile)
+    public CompilationResult compile(QuestionFiles files, Path testerFile)
             throws IOException, InterruptedException {
         String testerFilename = testerFile.getFileName().toString();
-        String questionId = questionId(testerFilename);
-        if (studentFiles.isEmpty()) {
-            throw new IllegalArgumentException("At least one student source file is required.");
-        }
+        var question = AssessmentDefinition.forTester(testerFilename);
+        String questionId = question.id();
+        requirePrepared(files, question, testerFile);
         Path workspace = Files.createTempDirectory("cs102-grading-");
         try {
             Path sources = Files.createDirectory(workspace.resolve("sources"));
             Path classes = Files.createDirectory(workspace.resolve("classes"));
+            stageDependencies(questionId, files.supportClasses(), classes, "support class");
+            // Testers open relative filenames from their JVM's working directory.
+            stageDependencies(questionId, files.runtimeFiles(), workspace, "runtime file");
             Path emptySourcepath = Files.createDirectory(workspace.resolve("empty-sourcepath"));
             List<String> command = new ArrayList<>(List.of(
                     jdkTool("javac"), "-J-Xmx256m", "-encoding", "UTF-8", "--release", "21",
-                    "-proc:none", "-implicit:none", "-classpath", classpath(classes, supportClasspath),
+                    "-proc:none", "-implicit:none", "-classpath", classes.toString(),
                     "-sourcepath", emptySourcepath.toString(), "-d", classes.toString()));
-            for (Path source : Stream.concat(studentFiles.stream(), Stream.of(testerFile)).toList()) {
+            for (Path source : Stream.concat(files.sources().stream(), Stream.of(testerFile)).toList()) {
                 String filename = source.getFileName().toString();
-                if (!filename.endsWith(".java")) {
-                    throw new IllegalArgumentException("Expected a Java source file: " + source);
-                }
                 Path copy = sources.resolve(filename);
                 // no replacement: duplicate filenames must not overwrite a student or official tester
                 Files.copy(source, copy);
                 command.add(copy.toString());
             }
+            log.accept("[" + questionId + "] Compiling " + files.sources().stream()
+                    .map(path -> path.getFileName().toString()).toList() + " with " + testerFilename);
             ProcessResult process = runner.run(command, workspace, compilationTimeout);
+            logProcess(questionId, "Compilation", process);
             return new CompilationResult(questionId, testerFilename.replaceFirst("\\.java$", ""),
-                    workspace, supportClasspath, process);
+                    workspace, process);
         } catch (IOException | InterruptedException | RuntimeException failure) {
             try {
                 CompilationResult.deleteWorkspace(workspace);
@@ -96,12 +100,14 @@ public final class JavaGradingService {
         if (!Files.isDirectory(compilation.classesDirectory())) {
             throw new IOException("Compilation workspace is closed or missing.");
         }
+        log.accept("[" + compilation.questionId() + "] Running " + compilation.testerClass());
         ProcessResult execution = runner.run(List.of(
                 jdkTool("java"), "-Xmx256m", "-XX:-CreateCoredumpOnCrash",
                 "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
                 "-Djava.io.tmpdir=" + compilation.workspace(),
-                "-cp", classpath(compilation.classesDirectory(), compilation.supportClasspath()),
+                "-cp", compilation.classesDirectory().toString(),
                 compilation.testerClass()), compilation.workspace(), executionTimeout);
+        logProcess(compilation.questionId(), "Execution", execution);
         if (!execution.succeeded()) {
             QuestionGradingResult.Status status = switch (execution.status()) {
                 case TIMED_OUT -> QuestionGradingResult.Status.EXECUTION_TIMEOUT;
@@ -129,44 +135,47 @@ public final class JavaGradingService {
     }
 
     // compiles, executes, and removes all temporary files, including after failure
-    public QuestionGradingResult gradeQuestion(List<Path> studentFiles, Path testerFile) throws InterruptedException {
-        String questionId = questionId(testerFile.getFileName().toString());
-        try (CompilationResult compilation = compile(studentFiles, testerFile)) {
-            return execute(compilation);
+    public QuestionGradingResult gradeQuestion(QuestionFiles files, Path testerFile)
+            throws IOException, InterruptedException {
+        String questionId = AssessmentDefinition.forTester(testerFile.getFileName().toString()).id();
+        try (CompilationResult compilation = compile(files, testerFile)) {
+            QuestionGradingResult result = execute(compilation);
+            log.accept("[" + questionId + "] " + result.status() + " | Score: " + result.score()
+                    + " | Passed: " + result.passedTests() + " | Failed: " + result.failedTests());
+            return result;
         } catch (IOException exception) {
-            return failure(questionId, QuestionGradingResult.Status.IO_ERROR, null, null, exception.getMessage());
+            log.accept("[" + questionId + "] Grading stopped: " + exception.getMessage());
+            throw exception;
         }
     }
 
-    // invalid submissions receive explicit zero-score results; invalid shared testers are rejected.
+    // Input/preparation failures stop grading instead of awarding misleading zero scores.
     public StudentGradingResult gradeStudent(SubmissionValidationResult submission, TesterValidationResult testers)
-            throws InterruptedException {
-        Objects.requireNonNull(submission, "submission");
-        if (!testers.isValid()
-                || !testers.testerFiles().keySet().containsAll(TesterFileValidationService.requiredTesterFiles())) {
-            throw new IllegalArgumentException("Import and validate all required tester files before grading.");
-        }
+            throws IOException, InterruptedException {
+        requirePrepared(submission, testers);
+        log.accept("\n=== Student: " + submission.username() + " ===");
         List<QuestionGradingResult> questions = new ArrayList<>();
-        for (String testerFilename : TesterFileValidationService.requiredTesterFiles()) {
-            String questionId = questionId(testerFilename);
-            List<String> requiredSources = questionId.equals("Q3")
-                    ? List.of("Q3.java", "ShapeComparator.java") : List.of(questionId + ".java");
-            if (!submission.isReadyForGrading()
-                    || !submission.javaFiles().keySet().containsAll(SubmissionPreparationService.requiredJavaFiles().keySet())) {
-                questions.add(failure(questionId, QuestionGradingResult.Status.INVALID_SUBMISSION, null, null,
-                        "Resolve submission validation errors before grading."));
-                continue;
+        for (var question : AssessmentDefinition.QUESTIONS) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Grading cancelled.");
             }
-            List<Path> sources = requiredSources.stream().map(submission.javaFiles()::get).toList();
-            questions.add(gradeQuestion(sources, testers.testerFiles().get(testerFilename)));
+            questions.add(gradeQuestion(submission.questionFiles().get(question.id()),
+                    testers.testerFiles().get(question.testerFilename())));
         }
-        return new StudentGradingResult(submission.username(), questions);
+        StudentGradingResult result = new StudentGradingResult(submission.username(), questions);
+        log.accept("[" + result.username() + "] Question scores: " + result.questionScores()
+                + " | Total: " + result.totalScore());
+        return result;
     }
 
     // processes students in input order
     // interruption cancels the batch after terminating active processes.
     public List<StudentGradingResult> gradeBatch(List<SubmissionValidationResult> submissions, TesterValidationResult testers)
-            throws InterruptedException {
+            throws IOException, InterruptedException {
+        // Check the entire batch before calculating any scores; compile rechecks before copying.
+        for (SubmissionValidationResult submission : submissions) {
+            requirePrepared(submission, testers);
+        }
         List<StudentGradingResult> results = new ArrayList<>();
         for (SubmissionValidationResult submission : submissions) {
             if (Thread.currentThread().isInterrupted()) {
@@ -182,11 +191,47 @@ public final class JavaGradingService {
         return new QuestionGradingResult(questionId, status, 0, 0, 0, compilation, execution, message);
     }
 
-    private static String questionId(String testerFilename) {
-        if (!TESTER_FILENAME.matcher(testerFilename).matches()) {
-            throw new IllegalArgumentException("Expected a default-package <Question>Tester.java file.");
+    private void logProcess(String question, String stage, ProcessResult process) {
+        log.accept("[" + question + "] " + stage + ": " + process.status() + ", exit " + process.exitCode()
+                + ", " + process.duration().toMillis() + " ms");
+        if (!process.stdout().isBlank()) {
+            log.accept(process.stdout());
         }
-        return testerFilename.substring(0, testerFilename.length() - "Tester.java".length());
+        if (!process.stderr().isBlank()) {
+            log.accept("[" + question + "] " + stage + " stderr:\n" + process.stderr());
+        }
+    }
+
+    private void stageDependencies(String question, List<Path> files, Path destination, String role) throws IOException {
+        for (Path file : files) {
+            Files.copy(file, destination.resolve(file.getFileName()));
+            log.accept("[" + question + "] Staged " + role + ": " + file.getFileName());
+        }
+    }
+
+    private static void requirePrepared(SubmissionValidationResult submission, TesterValidationResult testers)
+            throws IOException {
+        if (!testers.isValid()) {
+            throw new IllegalArgumentException("Import and validate all required tester files before grading.");
+        }
+        if (!submission.isReadyForGrading()) {
+            throw new IllegalArgumentException("Resolve submission validation errors before grading: " + submission.username());
+        }
+        for (var question : AssessmentDefinition.QUESTIONS) {
+            requirePrepared(submission.questionFiles().get(question.id()), question,
+                    testers.testerFiles().get(question.testerFilename()));
+        }
+    }
+
+    private static void requirePrepared(QuestionFiles files, AssessmentDefinition.Question question, Path tester)
+            throws IOException {
+        if (!files.matches(question)) {
+            throw new IOException("Incomplete or unexpected files for " + question.id() + ". Import the submission again.");
+        }
+        files.requireReadable();
+        if (!Files.isRegularFile(tester) || !Files.isReadable(tester)) {
+            throw new IOException("Required tester is missing or unreadable: " + tester + ". Import the testers again.");
+        }
     }
 
     private static String jdkTool(String name) throws IOException {
@@ -196,11 +241,6 @@ public final class JavaGradingService {
             throw new IOException("A full JDK 21 or newer is required; missing tool: " + tool);
         }
         return tool.toString();
-    }
-
-    private static String classpath(Path classes, List<Path> support) {
-        return String.join(File.pathSeparator, Stream.concat(Stream.of(classes), support.stream())
-                .map(Path::toString).toList());
     }
 
     private static Duration requirePositive(Duration timeout) {

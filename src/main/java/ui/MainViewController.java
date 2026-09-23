@@ -1,5 +1,9 @@
 package ui;
 
+import grading.assessment.AssessmentDefinition;
+import grading.execution.JavaGradingService;
+import grading.execution.QuestionGradingResult;
+import grading.execution.StudentGradingResult;
 import grading.submission.SubmissionFinding;
 import grading.submission.SubmissionCorrectionService;
 import grading.submission.SubmissionPreparationService;
@@ -51,13 +55,18 @@ public final class MainViewController {
             "CONFLICTING_HEADER_IDENTITIES");
     private String testerReport = "";
     private String submissionReport = "";
+    private String gradingReport = "";
+    private final StringBuilder gradingLog = new StringBuilder();
+    private boolean gradingLogTruncated;
+    private static final int MAX_LOG_CHARACTERS = 100_000;
+    private TesterValidationResult latestTesterResult;
+    private Task<List<StudentGradingResult>> gradingTask;
+    private boolean inputTaskRunning;
     private List<SubmissionValidationResult> latestSubmissionResults = List.of();
     private Path latestSubmissionWorkspace;
     private boolean identityPromptOffered;
     private boolean testerImported;
-    private boolean testerValid;
     private boolean submissionsImported;
-    private boolean submissionsValid;
     private long readySubmissionCount;
     private long totalSubmissionCount;
 
@@ -101,6 +110,9 @@ public final class MainViewController {
     private Button resolveIssuesButton;
 
     @FXML
+    private Button runGradingButton;
+
+    @FXML
     private void importTesterFiles() {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Select Tester-Files folder");
@@ -109,9 +121,18 @@ public final class MainViewController {
             return;
         }
 
-        Path source = selected.toPath();
+        importTesterFiles(selected.toPath());
+    }
+
+    void importTesterFiles(Path source) {
+        if (isBusy()) {
+            return;
+        }
+        inputTaskRunning = true;
+        latestTesterResult = null;
+        clearGradingReport();
         testerFolderField.setText(source.toAbsolutePath().toString());
-        testerImportButton.setDisable(true);
+        updateReadiness();
         statusText.setText("Validating tester files");
         consoleStatus.setText("Tester validation in progress");
 
@@ -122,12 +143,12 @@ public final class MainViewController {
             }
         };
         task.setOnSucceeded(event -> {
+            inputTaskRunning = false;
             showTesterResult(task.getValue());
-            testerImportButton.setDisable(false);
         });
         task.setOnFailed(event -> {
+            inputTaskRunning = false;
             testerImported = true;
-            testerValid = false;
             testerReport = "Tester-file validation failed\n"
                     + "=============================\n"
                     + safeMessage(task.getException())
@@ -137,7 +158,6 @@ public final class MainViewController {
             statusText.setText("Validation failed");
             consoleStatus.setText("Tester import not completed");
             updateReadiness();
-            testerImportButton.setDisable(false);
         });
 
         Thread worker = new Thread(task, "tester-file-validator");
@@ -154,7 +174,17 @@ public final class MainViewController {
             return;
         }
 
-        Path source = selected.toPath();
+        importSubmissions(selected.toPath());
+    }
+
+    void importSubmissions(Path source) {
+        if (isBusy()) {
+            return;
+        }
+        inputTaskRunning = true;
+        latestSubmissionResults = List.of();
+        latestSubmissionWorkspace = null;
+        clearGradingReport();
         Path workspace = Path.of(
                 System.getProperty("java.io.tmpdir"),
                 "cs102-auto-grading",
@@ -163,7 +193,8 @@ public final class MainViewController {
         identityPromptOffered = false;
         readySubmissionCount = 0;
         totalSubmissionCount = 0;
-        submissionImportButton.setDisable(true);
+        updateReadiness();
+        updateResolveIssuesButton();
         statusText.setText("Validating submissions");
         consoleStatus.setText("Validation in progress");
 
@@ -174,14 +205,14 @@ public final class MainViewController {
             }
         };
         task.setOnSucceeded(event -> {
+            inputTaskRunning = false;
             List<SubmissionValidationResult> results = task.getValue();
             showResults(results, workspace);
-            submissionImportButton.setDisable(false);
         });
         task.setOnFailed(event -> {
+            inputTaskRunning = false;
             Throwable failure = task.getException();
             submissionsImported = true;
-            submissionsValid = false;
             submissionReport = "Submission validation failed\n"
                     + "============================\n"
                     + safeMessage(failure)
@@ -192,7 +223,6 @@ public final class MainViewController {
             statusText.setText("Validation failed");
             consoleStatus.setText("Import not completed");
             updateReadiness();
-            submissionImportButton.setDisable(false);
         });
 
         Thread worker = new Thread(task, "submission-validator");
@@ -200,12 +230,120 @@ public final class MainViewController {
         worker.start();
     }
 
+    @FXML
+    private void runGrading() {
+        if (isBusy() || !inputsReady()) {
+            return;
+        }
+        List<SubmissionValidationResult> submissions = List.copyOf(latestSubmissionResults);
+        TesterValidationResult testers = latestTesterResult;
+        clearGradingReport();
+        gradingTask = new Task<>() {
+            @Override
+            protected List<StudentGradingResult> call() throws IOException, InterruptedException {
+                JavaGradingService grader = new JavaGradingService(message -> {
+                    System.out.println(message);
+                    Platform.runLater(() -> {
+                        if (gradingTask == this) {
+                            appendGradingLog(message);
+                        }
+                    });
+                });
+                return grader.gradeBatch(submissions, testers);
+            }
+        };
+        Task<List<StudentGradingResult>> task = gradingTask;
+        task.setOnSucceeded(event -> {
+            gradingTask = null;
+            updateReadiness();
+            List<StudentGradingResult> results = task.getValue();
+            long failedParts = results.stream().flatMap(student -> student.questions().stream())
+                    .filter(question -> question.status() != QuestionGradingResult.Status.GRADED).count();
+            gradingReport = formatGradingResults(results) + "\nProcess log\n===========\n" + displayedGradingLog() + "\n";
+            refreshReports();
+            statusText.setText(failedParts == 0 ? "Grading complete" : "Grading complete — review errors");
+            consoleStatus.setText("Students graded: " + results.size() + " | Parts with errors: " + failedParts);
+            System.out.println("Grading complete: " + results.size() + " students, " + failedParts + " parts with errors.");
+        });
+        task.setOnFailed(event -> {
+            gradingTask = null;
+            updateReadiness();
+            String message = "Grading failed: " + safeMessage(task.getException());
+            gradingReport = message + "\n\n" + displayedGradingLog() + "\n";
+            refreshReports();
+            statusText.setText("Grading failed");
+            consoleStatus.setText("Review the process log, then retry");
+            System.err.println(message);
+        });
+        task.setOnCancelled(event -> {
+            gradingTask = null;
+            updateReadiness();
+            System.out.println("Grading cancelled.");
+        });
+        updateReadiness();
+        statusText.setText("Grading in progress");
+        consoleStatus.setText("Grading " + submissions.size() + " students");
+        appendGradingLog("Starting grading for " + submissions.size() + " students.");
+        System.out.println("Starting grading for " + submissions.size() + " students.");
+        // Keep the worker alive on application exit until interrupted process cleanup has finished.
+        Thread worker = new Thread(task, "grading-runner");
+        worker.setDaemon(false);
+        worker.start();
+    }
+
+    void shutdown() {
+        if (gradingTask != null) {
+            gradingTask.cancel(true);
+        }
+    }
+
+    private void clearGradingReport() {
+        gradingReport = "";
+        gradingLog.setLength(0);
+        gradingLogTruncated = false;
+        refreshReports();
+    }
+
+    private void appendGradingLog(String message) {
+        gradingLog.append(message).append('\n');
+        if (gradingLog.length() > MAX_LOG_CHARACTERS) {
+            gradingLog.delete(0, gradingLog.length() - MAX_LOG_CHARACTERS);
+            gradingLogTruncated = true;
+        }
+        findingsConsole.setText(displayedGradingLog());
+        findingsConsole.positionCaret(findingsConsole.getLength());
+    }
+
+    private String displayedGradingLog() {
+        return (gradingLogTruncated ? "[Earlier process output omitted from this view; see terminal.]\n" : "")
+                + gradingLog;
+    }
+
+    private static String formatGradingResults(List<StudentGradingResult> results) {
+        StringBuilder report = new StringBuilder("Grading results\n===============\n");
+        for (StudentGradingResult student : results) {
+            report.append('\n').append('[').append(student.username()).append("]\n");
+            student.questionScores().forEach((question, score) -> report.append(question)
+                    .append(": ").append(score).append("   "));
+            report.append("Total: ").append(student.totalScore()).append('\n');
+            for (QuestionGradingResult question : student.questions()) {
+                report.append("  ").append(question.questionId()).append(": ").append(question.score())
+                        .append(" — ").append(question.status())
+                        .append(" (passed ").append(question.passedTests())
+                        .append(", failed ").append(question.failedTests()).append(")\n");
+                if (question.status() != QuestionGradingResult.Status.GRADED) {
+                    report.append("    ").append(question.message()).append('\n');
+                }
+            }
+        }
+        return report.toString();
+    }
+
     private void showResults(List<SubmissionValidationResult> results, Path workspace) {
         long ready = results.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
         long errors = results.stream().filter(SubmissionValidationResult::hasErrors).count();
         long corrections = results.stream().mapToLong(SubmissionValidationResult::correctedCount).sum();
         submissionsImported = true;
-        submissionsValid = !results.isEmpty() && ready == results.size();
         readySubmissionCount = ready;
         totalSubmissionCount = results.size();
         latestSubmissionResults = List.copyOf(results);
@@ -268,6 +406,9 @@ public final class MainViewController {
 
     @FXML
     private void resolveSubmissionIssues() {
+        if (isBusy()) {
+            return;
+        }
         List<SubmissionValidationResult> affected = latestSubmissionResults.stream()
                 .filter(this::needsIdentityInput)
                 .filter(result -> result.normalizedRoot() != null)
@@ -354,7 +495,9 @@ public final class MainViewController {
             return;
         }
 
-        resolveIssuesButton.setDisable(true);
+        inputTaskRunning = true;
+        clearGradingReport();
+        updateReadiness();
         statusText.setText("Applying verified identities");
         consoleStatus.setText("Revalidating corrected copies");
         Path correctionRoot = latestSubmissionWorkspace.resolve("guided-corrections-" + UUID.randomUUID());
@@ -378,11 +521,12 @@ public final class MainViewController {
             }
         };
         task.setOnSucceeded(event -> {
-            resolveIssuesButton.setDisable(false);
+            inputTaskRunning = false;
             showResults(task.getValue(), latestSubmissionWorkspace);
         });
         task.setOnFailed(event -> {
-            resolveIssuesButton.setDisable(false);
+            inputTaskRunning = false;
+            updateReadiness();
             submissionReport += "\nGuided correction could not be completed: "
                     + safeMessage(task.getException())
                     + "\nNext step for marker: Review the entered identity values and try Resolve issues again.\n";
@@ -398,7 +542,7 @@ public final class MainViewController {
 
     private void showTesterResult(TesterValidationResult result) {
         testerImported = true;
-        testerValid = result.isValid();
+        latestTesterResult = result;
 
         TreeItem<String> root = new TreeItem<>(
                 result.source().getFileName() + (result.isValid() ? " - valid" : " - needs attention"));
@@ -416,7 +560,7 @@ public final class MainViewController {
                 .append("===============================\n")
                 .append("Folder: ").append(result.source().toAbsolutePath()).append('\n')
                 .append("Required files found: ").append(result.testerFiles().size())
-                .append('/').append(TesterFileValidationService.requiredTesterFiles().size()).append("\n\n");
+                .append('/').append(AssessmentDefinition.testerFiles().size()).append("\n\n");
         if (result.hasErrors()) {
             report.append("MARKER ACTION REQUIRED\n")
                     .append("Follow the Next step shown under each ERROR, then import Tester-Files again.\n\n");
@@ -476,13 +620,22 @@ public final class MainViewController {
 
     private void refreshReports() {
         String separator = !testerReport.isBlank() && !submissionReport.isBlank() ? "\n" : "";
-        findingsConsole.setText(testerReport + separator + submissionReport);
+        findingsConsole.setText(gradingReport + testerReport + separator + submissionReport);
         findingsConsole.positionCaret(0);
     }
 
     private void updateReadiness() {
-        if (testerImported && submissionsImported) {
-            if (testerValid && submissionsValid) {
+        boolean busy = isBusy();
+        runGradingButton.setDisable(busy || !inputsReady());
+        testerImportButton.setDisable(busy);
+        submissionImportButton.setDisable(busy);
+        resolveIssuesButton.setDisable(busy);
+        if (gradingTask != null) {
+            runReadinessText.setText("Grading in progress. Scores and logs appear below.");
+        } else if (inputTaskRunning) {
+            runReadinessText.setText("Validating inputs. Please wait.");
+        } else if (testerImported && submissionsImported) {
+            if (inputsReady()) {
                 runReadinessText.setText("Both folders are validated and ready.");
             } else {
                 runReadinessText.setText("Resolve the reported validation errors before grading.");
@@ -498,6 +651,16 @@ public final class MainViewController {
         if (totalSubmissionCount > 0) {
             statusText.setText(formatSubmissionReadiness(readySubmissionCount, totalSubmissionCount));
         }
+    }
+
+    private boolean isBusy() {
+        return inputTaskRunning || gradingTask != null;
+    }
+
+    private boolean inputsReady() {
+        return latestTesterResult != null && latestTesterResult.isValid()
+                && !latestSubmissionResults.isEmpty()
+                && latestSubmissionResults.stream().allMatch(SubmissionValidationResult::isReadyForGrading);
     }
 
     static String formatSubmissionReadiness(long ready, long total) {

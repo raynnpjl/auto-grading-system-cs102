@@ -25,6 +25,9 @@ public record SubmissionFinding(
         }
 
         return Optional.of(switch (code) {
+            case "MISSING_DEPENDENCY", "DEPENDENCY_UNREADABLE" ->
+                    "Restore the named support class or test data file from the assessment materials to the "
+                            + "stated Q folder, ensure it is readable, then import the submissions again.";
             case "MISSING_JAVA_FILE" ->
                     "Retrieve the missing source file from the student's submission or request a resubmission, "
                             + "place it in the stated Q folder, then import the submissions again.";

@@ -19,8 +19,6 @@ public record QuestionGradingResult(
         EXECUTION_TIMEOUT,
         OUTPUT_LIMIT_EXCEEDED,
         RUNTIME_ERROR,
-        INVALID_SCORE,
-        INVALID_SUBMISSION,
-        IO_ERROR
+        INVALID_SCORE
     }
 }

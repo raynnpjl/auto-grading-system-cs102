@@ -55,8 +55,9 @@ final class BoundedProcessRunner {
             // cleanup also runs on caller interruption, and kills observed children after normal exit
             terminate(process, descendants);
         }
-        finishReader(stdoutReader, stdout);
-        finishReader(stderrReader, stderr);
+        boolean terminated = status != ProcessResult.Status.EXITED;
+        finishReader(stdoutReader, stdout, terminated);
+        finishReader(stderrReader, stderr, terminated);
         if (status == ProcessResult.Status.EXITED && (stdout.overflow || stderr.overflow)) {
             status = ProcessResult.Status.OUTPUT_LIMIT_EXCEEDED;
         }
@@ -106,12 +107,15 @@ final class BoundedProcessRunner {
         }
     }
 
-    private void finishReader(Thread reader, OutputCapture output) throws IOException, InterruptedException {
+    private void finishReader(Thread reader, OutputCapture output, boolean terminated)
+            throws IOException, InterruptedException {
         reader.join(CLEANUP_TIMEOUT.toMillis());
         if (reader.isAlive()) {
             throw new IOException("Timed out reading grading process output.");
         }
-        if (output.failure != null) {
+        // destroyForcibly can close a pipe while its reader is draining buffered output.
+        // The time/output limit remains the result of an intentionally terminated process.
+        if (output.failure != null && !terminated) {
             throw output.failure;
         }
     }
