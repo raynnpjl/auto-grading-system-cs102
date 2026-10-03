@@ -180,6 +180,32 @@
     -fx-background-color: #d1e4e4;
 }
 
+.dialog-primary-button {
+    -fx-background-color: #2e686a;
+    -fx-text-fill: white;
+    -fx-cursor: hand;
+}
+
+.dialog-primary-button:hover {
+    -fx-background-color: #397c7e;
+}
+
+.dialog-primary-button:pressed {
+    -fx-background-color: #245759;
+}
+
+.dialog-secondary-button {
+    -fx-background-color: white;
+    -fx-border-color: #c9d3df;
+    -fx-border-radius: 5;
+    -fx-text-fill: #243248;
+    -fx-cursor: hand;
+}
+
+.dialog-secondary-button:hover {
+    -fx-background-color: #f1f4f8;
+}
+
 .play-icon {
     -fx-fill: white;
 }

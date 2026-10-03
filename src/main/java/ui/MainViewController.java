@@ -39,6 +39,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
@@ -67,6 +68,8 @@ public final class MainViewController {
     private final StringBuilder gradingLog = new StringBuilder();
     private boolean gradingLogTruncated;
     private static final int MAX_LOG_CHARACTERS = 100_000;
+    private static final ButtonType SCORE_SHEET_WRITE =
+            new ButtonType("Write scores", ButtonBar.ButtonData.OK_DONE);
     private TesterValidationResult latestTesterResult;
     private Task<List<StudentGradingResult>> gradingTask;
     private boolean inputTaskRunning;
@@ -412,9 +415,13 @@ public final class MainViewController {
     }
 
     private boolean confirmScoreSheetWrite(ScoreSheetPreview preview) {
-        ButtonType write = new ButtonType("Write scores", ButtonBar.ButtonData.OK_DONE);
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "", write, ButtonType.CANCEL);
+        Alert alert = scoreSheetConfirmation(preview);
         alert.initOwner(writeScoresButton.getScene().getWindow());
+        return alert.showAndWait().filter(SCORE_SHEET_WRITE::equals).isPresent();
+    }
+
+    Alert scoreSheetConfirmation(ScoreSheetPreview preview) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "", SCORE_SHEET_WRITE, ButtonType.CANCEL);
         alert.setTitle("Write scores to score sheet");
         alert.setHeaderText("Write " + preview.entries().size() + " scores into "
                 + preview.sheet().path().getFileName() + "?\nA backup of the current file is saved first.");
@@ -422,8 +429,13 @@ public final class MainViewController {
         details.setEditable(false);
         details.setWrapText(true);
         details.setPrefRowCount(12);
-        alert.getDialogPane().setContent(details);
-        return alert.showAndWait().filter(write::equals).isPresent();
+        DialogPane pane = alert.getDialogPane();
+        pane.setContent(details);
+        // dialogs open in their own window, so they need the application's stylesheet explicitly
+        pane.getStylesheets().add(getClass().getResource("/ui/styles.css").toExternalForm());
+        pane.lookupButton(SCORE_SHEET_WRITE).getStyleClass().add("dialog-primary-button");
+        pane.lookupButton(ButtonType.CANCEL).getStyleClass().add("dialog-secondary-button");
+        return alert;
     }
 
     private String scoreSheetStatus() {

@@ -8,11 +8,17 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
+import grading.reporting.ScoreSheet;
+import grading.reporting.ScoreSheetPreview;
+import grading.reporting.ScoreSheetUpdater;
+import grading.scoring.ScoreSummary;
+import grading.scoring.StudentScore;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
@@ -22,9 +28,14 @@ import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
+import javafx.scene.Cursor;
 import javafx.scene.Scene;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.paint.Color;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -156,6 +167,26 @@ class ScoreSheetWorkflowTest {
         fx(() -> { controller.importSubmissions(student); return null; });
         await(() -> !button("submissionImportButton").isDisabled());
         assertTrue(fx(() -> button("writeScoresButton").isDisabled()), "scores from the earlier run were cleared");
+    }
+
+    @Test
+    void confirmationButtonsLookAndActClickable() throws Exception {
+        ScoreSheetPreview preview = new ScoreSheetUpdater().preview(ScoreSheet.load(sheet),
+                new ScoreSummary(List.of(new StudentScore("alice", Map.of(), 10.0))));
+        fx(() -> {
+            Alert alert = controller.scoreSheetConfirmation(preview);
+            DialogPane pane = alert.getDialogPane();
+            pane.applyCss();
+            for (ButtonType type : pane.getButtonTypes()) {
+                Button button = (Button) pane.lookupButton(type);
+                assertEquals(Cursor.HAND, button.getCursor(), type.getText());
+                assertFalse(button.isDisabled(), type.getText());
+            }
+            Button write = (Button) pane.lookupButton(pane.getButtonTypes().getFirst());
+            assertEquals("Write scores", write.getText());
+            assertEquals(Color.web("#2e686a"), write.getBackground().getFills().getFirst().getFill());
+            return null;
+        });
     }
 
     private void grade() throws Exception {
