@@ -19,7 +19,6 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 
-// Generated with Claude Code (Claude Opus 5.5); reviewed and adapted by the team.
 /**
  * An imported LMS score sheet. Rows are kept as the exact original text so that an update changes
  * only the score cells it fills and leaves every other byte of the file as the instructor provided it.

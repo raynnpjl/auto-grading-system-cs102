@@ -7,7 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-// Generated with Claude Code (Claude Opus 5.5); reviewed and adapted by the team.
 /** One student's final marks: each question part in assessment order, plus the total. */
 public record StudentScore(String username, Map<String, Double> questionScores, double total) {
 

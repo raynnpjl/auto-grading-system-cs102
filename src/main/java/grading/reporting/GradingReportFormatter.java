@@ -4,7 +4,6 @@ import grading.execution.QuestionGradingResult;
 import grading.execution.StudentGradingResult;
 import java.util.List;
 
-// Moved from MainViewController with Claude Code (Claude Opus 5.5); output is unchanged.
 /** Formats per-question and per-student scores for the results console. */
 public final class GradingReportFormatter {
 

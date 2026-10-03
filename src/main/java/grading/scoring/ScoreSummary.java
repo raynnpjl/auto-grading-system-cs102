@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
-// Generated with Claude Code (Claude Opus 5.5); reviewed and adapted by the team.
 /** The scores of one grading run, kept in grading order so they can be reported and exported. */
 public record ScoreSummary(List<StudentScore> students) {
 

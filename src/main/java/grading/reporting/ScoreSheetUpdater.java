@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-// Generated with Claude Code (Claude Opus 5.5); reviewed and adapted by the team.
 /**
  * Writes per-student totals into the score sheet the marker imported. The file is backed up first
  * and replaced in one step, so a failed write never leaves a half-written score sheet.

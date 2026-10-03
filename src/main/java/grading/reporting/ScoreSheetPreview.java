@@ -2,7 +2,6 @@ package grading.reporting;
 
 import java.util.List;
 
-// Generated with Claude Code (Claude Opus 5.5); reviewed and adapted by the team.
 /** What writing scores into a score sheet would change, shown to the marker before anything is written. */
 public record ScoreSheetPreview(
         ScoreSheet sheet,

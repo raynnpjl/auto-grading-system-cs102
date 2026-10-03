@@ -2,7 +2,6 @@ package grading.reporting;
 
 import java.io.IOException;
 
-// Generated with Claude Code (Claude Opus 5.5); reviewed and adapted by the team.
 /** A score sheet that cannot be read or updated safely; the message tells the marker what to do. */
 public class ScoreSheetException extends IOException {
 

@@ -344,7 +344,6 @@ public final class MainViewController {
                 + gradingLog;
     }
 
-    // Score sheet import and write-back, added with Claude Code (Claude Opus 5.5); reviewed by the team.
     @FXML
     private void importScoreSheet() {
         FileChooser chooser = new FileChooser();
