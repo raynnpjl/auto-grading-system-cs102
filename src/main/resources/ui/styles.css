@@ -170,6 +170,16 @@
     -fx-background-color: #ffc94d;
 }
 
+.score-sheet-button {
+    -fx-background-color: #e3eeee;
+    -fx-text-fill: #1f4f51;
+    -fx-cursor: hand;
+}
+
+.score-sheet-button:hover {
+    -fx-background-color: #d1e4e4;
+}
+
 .play-icon {
     -fx-fill: white;
 }

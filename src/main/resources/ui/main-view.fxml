@@ -116,6 +116,12 @@
                 <Label text="Compilation, execution, and grading results" styleClass="console-description"/>
             </VBox>
             <Region HBox.hgrow="ALWAYS"/>
+            <Button fx:id="scoreSheetImportButton" text="Import score sheet"
+                    styleClass="score-sheet-button" onAction="#importScoreSheet"
+                    accessibleText="Import the score sheet CSV to fill with totals"/>
+            <Button fx:id="writeScoresButton" text="Write scores" disable="true"
+                    styleClass="score-sheet-button" onAction="#writeScoresToSheet"
+                    accessibleText="Write each student's total into the imported score sheet"/>
             <Button fx:id="resolveIssuesButton" text="Resolve issues" visible="false" managed="false"
                     styleClass="resolution-button" onAction="#resolveSubmissionIssues"/>
             <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"/>
