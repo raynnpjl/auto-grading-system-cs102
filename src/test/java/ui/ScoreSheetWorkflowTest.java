@@ -1,41 +1,27 @@
 package ui;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
-import grading.reporting.ScoreSheet;
-import grading.reporting.ScoreSheetPreview;
-import grading.reporting.ScoreSheetUpdater;
-import grading.scoring.ScoreSummary;
-import grading.scoring.StudentScore;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
-import javafx.scene.Cursor;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.DialogPane;
 import javafx.scene.control.TextArea;
-import javafx.scene.paint.Color;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -110,83 +96,41 @@ class ScoreSheetWorkflowTest {
             fxml = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
         assertAll(
-                () -> assertTrue(fxml.contains("fx:id=\"scoreSheetImportButton\"")),
-                () -> assertTrue(fxml.contains("onAction=\"#importScoreSheet\"")),
-                () -> assertTrue(fxml.contains("fx:id=\"writeScoresButton\"")),
-                () -> assertTrue(fxml.contains("onAction=\"#writeScoresToSheet\"")),
-                () -> assertTrue(MainViewController.class.getDeclaredMethod("importScoreSheet")
-                        .isAnnotationPresent(FXML.class)),
-                () -> assertTrue(MainViewController.class.getDeclaredMethod("writeScoresToSheet")
+                () -> assertTrue(fxml.contains("fx:id=\"downloadScoresheetButton\"")),
+                () -> assertTrue(fxml.contains("onAction=\"#downloadScoresheet\"")),
+                () -> assertTrue(MainViewController.class.getDeclaredMethod("downloadScoresheet")
                         .isAnnotationPresent(FXML.class)));
     }
 
     @Test
-    void writesGradedTotalsIntoTheImportedSheetAfterConfirmation() throws Exception {
-        assertTrue(fx(() -> button("writeScoresButton").isDisabled()));
-        fx(() -> { controller.importScoreSheet(sheet); return null; });
-        assertTrue(console().contains("Score sheet: " + sheet.toAbsolutePath().normalize()), console());
-        assertTrue(fx(() -> button("writeScoresButton").isDisabled()), "nothing graded yet");
+    void writesGradedTotalsToCsv() throws Exception {
+        assertTrue(fx(() -> button("downloadScoresheetButton").isDisabled()));
 
         grade();
-        assertFalse(fx(() -> button("writeScoresButton").isDisabled()));
-        assertTrue(console().contains("Select Write scores to fill it with this run's totals."), console());
+        assertFalse(fx(() -> button("downloadScoresheetButton").isDisabled()));
 
-        fx(() -> { controller.writeScoresToSheet(preview -> false); return null; });
-        assertEquals(SHEET, Files.readString(sheet), "cancelling must not write anything");
+        Path destination = temporary.resolve("downloaded_scoresheet.csv");
+        fx(() -> { controller.downloadScoresheet(destination); return null; });
 
-        fx(() -> { controller.writeScoresToSheet(preview -> {
-            assertEquals(1, preview.entries().size());
-            assertEquals(List.of("bob.absent.2024"), preview.noSubmission());
-            return true;
-        }); return null; });
+        assertTrue(Files.exists(destination));
+        String content = Files.readString(destination);
+        assertTrue(content.contains("Username,Score"));
+        assertTrue(content.contains("alice,10.0"));
 
-        assertEquals(SHEET.replace("alice@smu.edu.sg,,20", "alice@smu.edu.sg,10.0,20"), Files.readString(sheet));
         String report = console();
-        assertTrue(report.startsWith("Scores written to score sheet"), report);
-        assertTrue(report.contains("bob.absent.2024"), report);
-        assertTrue(report.contains("Grading results"), report);
-        try (Stream<Path> files = Files.list(sheet.getParent())) {
-            Path backup = files.filter(file -> file.getFileName().toString().contains(".backup-"))
-                    .findFirst().orElseThrow();
-            assertEquals(SHEET, Files.readString(backup));
-        }
+        assertTrue(report.startsWith("Scores written to CSV:"), report);
     }
 
     @Test
-    void explainsInvalidSheetsAndRequiresANewRunAfterReimporting() throws Exception {
-        Path invalid = Files.writeString(temporary.resolve("roster.csv"), "Name,Email\r\nAlice,a@smu.edu.sg\r\n");
-        fx(() -> { controller.importScoreSheet(invalid); return null; });
-        assertTrue(console().startsWith("Score sheet not imported"), console());
-        assertTrue(console().contains("no \"Username\" column"), console());
+    void requiresANewRunAfterReimportingSubmissions() throws Exception {
+        assertTrue(fx(() -> button("downloadScoresheetButton").isDisabled()), "nothing graded yet");
 
         grade();
-        assertTrue(fx(() -> button("writeScoresButton").isDisabled()), "no valid sheet imported");
-        fx(() -> { controller.importScoreSheet(sheet); return null; });
-        assertFalse(fx(() -> button("writeScoresButton").isDisabled()));
+        assertFalse(fx(() -> button("downloadScoresheetButton").isDisabled()));
 
         fx(() -> { controller.importSubmissions(student); return null; });
         await(() -> !button("submissionImportButton").isDisabled());
-        assertTrue(fx(() -> button("writeScoresButton").isDisabled()), "scores from the earlier run were cleared");
-    }
-
-    @Test
-    void confirmationButtonsLookAndActClickable() throws Exception {
-        ScoreSheetPreview preview = new ScoreSheetUpdater().preview(ScoreSheet.load(sheet),
-                new ScoreSummary(List.of(new StudentScore("alice", Map.of(), 10.0))));
-        fx(() -> {
-            Alert alert = controller.scoreSheetConfirmation(preview);
-            DialogPane pane = alert.getDialogPane();
-            pane.applyCss();
-            for (ButtonType type : pane.getButtonTypes()) {
-                Button button = (Button) pane.lookupButton(type);
-                assertEquals(Cursor.HAND, button.getCursor(), type.getText());
-                assertFalse(button.isDisabled(), type.getText());
-            }
-            Button write = (Button) pane.lookupButton(pane.getButtonTypes().getFirst());
-            assertEquals("Write scores", write.getText());
-            assertEquals(Color.web("#2e686a"), write.getBackground().getFills().getFirst().getFill());
-            return null;
-        });
+        assertTrue(fx(() -> button("downloadScoresheetButton").isDisabled()), "scores from the earlier run were cleared");
     }
 
     private void grade() throws Exception {
