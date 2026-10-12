@@ -5,9 +5,6 @@ import grading.execution.JavaGradingService;
 import grading.execution.QuestionGradingResult;
 import grading.execution.StudentGradingResult;
 import grading.reporting.GradingReportFormatter;
-import grading.reporting.ScoreSheet;
-import grading.reporting.ScoreSheetPreview;
-import grading.reporting.ScoreSheetUpdater;
 import grading.scoring.ScoreSummary;
 import grading.submission.SubmissionFinding;
 import grading.submission.SubmissionCorrectionService;
@@ -28,18 +25,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Predicate;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
-import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
@@ -68,8 +62,6 @@ public final class MainViewController {
     private final StringBuilder gradingLog = new StringBuilder();
     private boolean gradingLogTruncated;
     private static final int MAX_LOG_CHARACTERS = 100_000;
-    private static final ButtonType SCORE_SHEET_WRITE =
-            new ButtonType("Write scores", ButtonBar.ButtonData.OK_DONE);
     private TesterValidationResult latestTesterResult;
     private Task<List<StudentGradingResult>> gradingTask;
     private boolean inputTaskRunning;
@@ -80,9 +72,7 @@ public final class MainViewController {
     private boolean submissionsImported;
     private long readySubmissionCount;
     private long totalSubmissionCount;
-    private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
     private ScoreSummary latestScores;
-    private ScoreSheet scoreSheet;
     private String scoreSheetReport = "";
 
     @FXML
@@ -128,10 +118,7 @@ public final class MainViewController {
     private Button runGradingButton;
 
     @FXML
-    private Button scoreSheetImportButton;
-
-    @FXML
-    private Button writeScoresButton;
+    private Button downloadScoresheetButton;
 
     @FXML
     private void importTesterFiles() {
@@ -283,8 +270,8 @@ public final class MainViewController {
             latestScores = ScoreSummary.from(results);
             gradingReport = GradingReportFormatter.format(results)
                     + "\nProcess log\n===========\n" + displayedGradingLog() + "\n";
-            scoreSheetReport = scoreSheetStatus();
-            updateWriteScoresButton();
+            scoreSheetReport = "";
+            updateDownloadScoresheetButton();
             refreshReports();
             statusText.setText(failedParts == 0 ? "Grading complete" : "Grading complete — review errors");
             consoleStatus.setText("Students graded: " + results.size() + " | Parts with errors: " + failedParts);
@@ -310,7 +297,6 @@ public final class MainViewController {
         consoleStatus.setText("Grading " + submissions.size() + " students");
         appendGradingLog("Starting grading for " + submissions.size() + " students.");
         System.out.println("Starting grading for " + submissions.size() + " students.");
-        // Keep the worker alive on application exit until interrupted process cleanup has finished.
         Thread worker = new Thread(task, "grading-runner");
         worker.setDaemon(false);
         worker.start();
@@ -327,8 +313,8 @@ public final class MainViewController {
         gradingLog.setLength(0);
         gradingLogTruncated = false;
         latestScores = null;
-        scoreSheetReport = scoreSheetStatus();
-        updateWriteScoresButton();
+        scoreSheetReport = "";
+        updateDownloadScoresheetButton();
         refreshReports();
     }
 
@@ -348,109 +334,48 @@ public final class MainViewController {
     }
 
     @FXML
-    private void importScoreSheet() {
+    private void downloadScoresheet() {
+        if (isBusy() || latestScores == null) {
+            return;
+        }
+
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Select the score sheet CSV");
+        chooser.setTitle("Save score sheet CSV");
+        chooser.setInitialFileName("scoresheet.csv");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files", "*.csv"));
-        File selected = chooser.showOpenDialog(scoreSheetImportButton.getScene().getWindow());
+        File selected = chooser.showSaveDialog(downloadScoresheetButton.getScene().getWindow());
         if (selected == null) {
             return;
         }
 
-        importScoreSheet(selected.toPath());
+        downloadScoresheet(selected.toPath());
     }
 
-    void importScoreSheet(Path source) {
+    void downloadScoresheet(Path destination) {
         try {
-            scoreSheet = ScoreSheet.load(source);
-            scoreSheetReport = scoreSheetStatus();
-            consoleStatus.setText("Score sheet imported: " + scoreSheet.rowCount() + " students");
+            StringBuilder csv = new StringBuilder("Username,Score\n");
+            if (latestScores != null && latestScores.students() != null) {
+                for (var student : latestScores.students()) {
+                    csv.append(student.username()).append(',').append(student.total()).append('\n');
+                }
+            }
+            Files.writeString(destination, csv.toString());
+            scoreSheetReport = "Scores written to CSV: " + destination.getFileName() + "\n\n";
+            statusText.setText("Scoresheet saved");
+            consoleStatus.setText("Scoresheet saved to " + destination.getFileName());
         } catch (IOException exception) {
-            scoreSheet = null;
-            scoreSheetReport = "Score sheet not imported\n"
-                    + "========================\n"
-                    + safeMessage(exception) + "\n\n";
-            consoleStatus.setText("Score sheet not imported");
+            scoreSheetReport = "Failed to write CSV\n==================\n" + safeMessage(exception) + "\n\n";
+            statusText.setText("Scoresheet save failed");
+            consoleStatus.setText("Scoresheet not saved");
         }
-        updateWriteScoresButton();
+        updateDownloadScoresheetButton();
         refreshReports();
     }
 
-    @FXML
-    private void writeScoresToSheet() {
-        writeScoresToSheet(this::confirmScoreSheetWrite);
-    }
-
-    void writeScoresToSheet(Predicate<ScoreSheetPreview> confirmation) {
-        if (isBusy() || latestScores == null || scoreSheet == null) {
-            return;
+    private void updateDownloadScoresheetButton() {
+        if (downloadScoresheetButton != null) {
+            downloadScoresheetButton.setDisable(isBusy() || latestScores == null);
         }
-        ScoreSheetPreview preview = scoreSheetUpdater.preview(scoreSheet, latestScores);
-        if (preview.entries().isEmpty()) {
-            scoreSheetReport = "Scores not written\n==================\n"
-                    + "No graded student matches a username in the imported score sheet. "
-                    + "Check that the correct sheet was imported.\n\n" + preview.describe() + "\n";
-            refreshReports();
-            return;
-        }
-        if (!confirmation.test(preview)) {
-            return;
-        }
-        try {
-            ScoreSheetUpdater.Result result = scoreSheetUpdater.write(preview);
-            scoreSheet = result.updatedSheet();
-            scoreSheetReport = "Scores written to score sheet\n"
-                    + "=============================\n"
-                    + preview.describe()
-                    + "Backup of the previous file: " + result.backup() + "\n\n";
-            statusText.setText("Scores written to score sheet");
-            consoleStatus.setText(result.scoresWritten() + " scores written to " + result.sheet().getFileName());
-        } catch (IOException exception) {
-            scoreSheetReport = "Scores not written\n==================\n" + safeMessage(exception) + "\n\n";
-            statusText.setText("Score sheet not updated");
-            consoleStatus.setText("Score sheet not updated");
-        }
-        updateWriteScoresButton();
-        refreshReports();
-    }
-
-    private boolean confirmScoreSheetWrite(ScoreSheetPreview preview) {
-        Alert alert = scoreSheetConfirmation(preview);
-        alert.initOwner(writeScoresButton.getScene().getWindow());
-        return alert.showAndWait().filter(SCORE_SHEET_WRITE::equals).isPresent();
-    }
-
-    Alert scoreSheetConfirmation(ScoreSheetPreview preview) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "", SCORE_SHEET_WRITE, ButtonType.CANCEL);
-        alert.setTitle("Write scores to score sheet");
-        alert.setHeaderText("Write " + preview.entries().size() + " scores into "
-                + preview.sheet().path().getFileName() + "?\nA backup of the current file is saved first.");
-        TextArea details = new TextArea(preview.describe());
-        details.setEditable(false);
-        details.setWrapText(true);
-        details.setPrefRowCount(12);
-        DialogPane pane = alert.getDialogPane();
-        pane.setContent(details);
-        // dialogs open in their own window, so they need the application's stylesheet explicitly
-        pane.getStylesheets().add(getClass().getResource("/ui/styles.css").toExternalForm());
-        pane.lookupButton(SCORE_SHEET_WRITE).getStyleClass().add("dialog-primary-button");
-        pane.lookupButton(ButtonType.CANCEL).getStyleClass().add("dialog-secondary-button");
-        return alert;
-    }
-
-    private String scoreSheetStatus() {
-        if (scoreSheet == null) {
-            return "";
-        }
-        String nextStep = latestScores == null
-                ? "Run grading, then select Write scores to fill it."
-                : "Select Write scores to fill it with this run's totals.";
-        return "Score sheet: " + scoreSheet.path() + " (" + scoreSheet.rowCount() + " students). "
-                + nextStep + "\n\n";
-    }
-
-    private void updateWriteScoresButton() {
-        writeScoresButton.setDisable(isBusy() || latestScores == null || scoreSheet == null);
     }
 
     private void showResults(List<SubmissionValidationResult> results, Path workspace) {
