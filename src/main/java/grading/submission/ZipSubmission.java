@@ -1,0 +1,42 @@
+package grading.submission;
+
+import grading.assessment.AssessmentDefinition;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+/** A submitted ZIP, which should contain one folder named after the student's username. */
+public final class ZipSubmission extends SubmissionSource {
+
+    private final ZipExtractor extractor;
+
+    ZipSubmission(Path path, ZipExtractor extractor) {
+        super(path);
+        this.extractor = extractor;
+    }
+
+    @Override
+    public Path open(Path staging, List<SubmissionFinding> findings) throws IOException {
+        Path content = Files.createDirectories(staging.resolve("content"));
+        extractor.extract(path(), content, findings);
+        return content;
+    }
+
+    @Override
+    public String expectedLocation(String username, String questionFolder, String fileName) {
+        return username + "/" + questionFolder + "/" + fileName;
+    }
+
+    @Override
+    public Optional<SubmissionFinding> checkUsernameFolder(Path content, String username) throws IOException {
+        if (FileSearch.hasChildFolder(content, username)) {
+            return Optional.empty();
+        }
+        String problem = FileSearch.hasChildFolder(content, AssessmentDefinition.templateFolder())
+                ? "The ZIP still contained the template folder name."
+                : "The ZIP did not contain a top-level folder named " + username + ".";
+        return Optional.of(wrongUsernameFolder(problem + " The normalized copy uses the inferred username."));
+    }
+}

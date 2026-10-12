@@ -66,6 +66,7 @@ public final class ScoreSheet {
                     + ". Make it writable (or save a writable copy), then import it again.");
         }
         byte[] bytes = Files.readAllBytes(file);
+        requireText(bytes, file);
         String text = decode(bytes, file);
         boolean byteOrderMark = text.startsWith(BYTE_ORDER_MARK);
         if (byteOrderMark) {
@@ -158,6 +159,31 @@ public final class ScoreSheet {
 
     private static String stripTextPrefix(String value) {
         return value.startsWith(LMS_TEXT_PREFIX) ? value.substring(LMS_TEXT_PREFIX.length()) : value;
+    }
+
+    // Numbers, Excel (.xlsx) and older Excel (.xls) documents keep their binary format even when
+    // they are saved under a .csv name.
+    private static void requireText(byte[] bytes, Path file) throws ScoreSheetException {
+        boolean zipDocument = startsWith(bytes, 0x50, 0x4B, 0x03, 0x04);
+        boolean oldExcel = startsWith(bytes, 0xD0, 0xCF, 0x11, 0xE0);
+        if (zipDocument || oldExcel) {
+            throw new ScoreSheetException(file.getFileName() + " is a spreadsheet document (for example from"
+                    + " Numbers or Excel) saved with a .csv name, not a CSV file. Open it and export it as CSV"
+                    + " (Numbers: File > Export To > CSV; Excel: Save As > CSV UTF-8), then import the exported"
+                    + " file.");
+        }
+    }
+
+    private static boolean startsWith(byte[] bytes, int... prefix) {
+        if (bytes.length < prefix.length) {
+            return false;
+        }
+        for (int index = 0; index < prefix.length; index++) {
+            if ((bytes[index] & 0xFF) != prefix[index]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String decode(byte[] bytes, Path file) throws ScoreSheetException {

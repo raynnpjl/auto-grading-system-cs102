@@ -1,0 +1,209 @@
+package grading.style;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import grading.config.StyleSettings;
+import grading.submission.HeaderIdentity;
+import grading.submission.SubmissionValidationResult;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class StyleCheckerTest {
+
+    private static final double MAX_SCORE = 10;
+
+    @TempDir
+    Path temporary;
+
+    @Test
+    void infiniteLoopsLeftWithBreakOrContinueAreReported() throws IOException {
+        StudentStyleResult result = check("Q1a.java", """
+                public class Q1a {
+                    static void loops(boolean running) {
+                        for (int i = 0; ; i++) {
+                            if (i == limit()) {
+                                break;
+                            }
+                        }
+                        outer:
+                        while (true) {
+                            for (int count = 0; count < limit(); count++) {
+                                break outer;
+                            }
+                        }
+                        while (true) {
+                            for (int count = 0; count < limit(); count++) {
+                                break;
+                            }
+                            return;
+                        }
+                        while (running) {
+                            break;
+                        }
+                    }
+
+                    static int limit() {
+                        return 2;
+                    }
+                }
+                """);
+
+        assertEquals(List.of(3, 9), lines(result, "infinite-loop-exit"),
+                "an inner loop's own break and a loop with a real condition are not reported");
+    }
+
+    @Test
+    void variablesDeclaredWithoutAValueAreReported() throws IOException {
+        StudentStyleResult result = check("Q1a.java", """
+                public class Q1a {
+                    private int count;
+
+                    static int total(int[] values) {
+                        int total;
+                        total = 0;
+                        int sum = 0;
+                        for (int value : values) {
+                            sum += value;
+                        }
+                        return total + sum;
+                    }
+                }
+                """);
+
+        assertEquals(List.of(5), lines(result, "initialise-at-declaration"),
+                "fields, for-each variables and initialised locals are not reported");
+    }
+
+    @Test
+    void firstAndLastIterationConditionalsAreReportedAsHeuristics() throws IOException {
+        StudentStyleResult result = check("Q1a.java", """
+                public class Q1a {
+                    static void print(int size, int target) {
+                        for (int i = 0; i < size - 1; i++) {
+                            if (i == size - 1) {
+                                System.out.println("last");
+                            }
+                            if (i == 0) {
+                                System.out.println("first");
+                            }
+                            if (i == target) {
+                                System.out.println("found");
+                            }
+                        }
+                    }
+                }
+                """);
+
+        assertEquals(List.of(4, 7), lines(result, "loop-edge-conditional"),
+                "comparing with an unrelated value is not reported");
+        assertTrue(result.violations().stream()
+                .filter(violation -> violation.rule().id().equals("loop-edge-conditional"))
+                .allMatch(violation -> violation.rule().heuristic()));
+    }
+
+    @Test
+    void codeKeptFromTheTemplateIsNotChecked() throws IOException {
+        String template = """
+                public class Q1a {
+                    public static int answer() {
+                        return 0;
+                    }
+
+                    // Do not modify the following codes
+                    public static void main(String[] args) {
+                        int x = 1234;
+                        System.out.println(x);
+                    }
+                }
+                """;
+        Files.createDirectories(temporary.resolve("template/Q1"));
+        Files.writeString(temporary.resolve("template/Q1/Q1a.java"), template);
+        String submitted = template.replace("        return 0;\n", "        int y = 5678;\n        return y;\n");
+
+        StudentStyleResult result = check("Q1a.java", submitted);
+
+        FileStyleResult file = result.files().getFirst();
+        assertTrue(file.templateLinesKept() > 0);
+        assertEquals(List.of(3), lines(result, "magic-numbers"), "only the student's own 5678 is reported");
+        assertEquals(List.of(3), lines(result, "variable-names"), "the template's x is not reported");
+    }
+
+    @Test
+    void aFileThatDoesNotParseIsRecordedAndTheOthersAreStillChecked() throws IOException {
+        Map<String, Path> sources = new LinkedHashMap<>();
+        sources.put("Q1a.java", write("Q1a.java", "public class Q1a {\n    void broken( {\n}\n"));
+        sources.put("Q1b.java", write("Q1b.java", "public class Q1b {\n    int a=1;\n}\n"));
+
+        StudentStyleResult result = checker(temporary.resolve("no-template")).check(submission(sources));
+
+        FileStyleResult broken = result.files().get(0);
+        assertFalse(broken.analysed());
+        assertTrue(broken.note().contains("does not parse"), broken.note());
+        assertTrue(result.files().get(1).analysed());
+        assertFalse(result.files().get(1).violations().isEmpty());
+        assertTrue(result.incomplete());
+        assertTrue(result.score().isPresent(), "the files that could be analysed are still scored");
+    }
+
+    @Test
+    void aMissingConfigurationIsReportedForEveryFileWithoutFailing() throws IOException {
+        StyleChecker checker = new StyleChecker(new StyleSettings(temporary.resolve("missing.xml"),
+                Path.of("config/style-rules.properties"), temporary, MAX_SCORE));
+
+        StudentStyleResult result = checker.check(submission(Map.of("Q1a.java", write("Q1a.java", "class Q1a {}"))));
+
+        assertTrue(result.score().isEmpty());
+        assertFalse(result.files().getFirst().analysed());
+        assertTrue(result.notes().getFirst().contains("was not found"), result.notes().toString());
+    }
+
+    @Test
+    void aRuleBrokenTwiceOnOneLineCountsOnceTowardsTheScore() throws IOException {
+        StudentStyleResult result = check("Q1a.java", """
+                public class Q1a {
+                    static int sum(int first, int second) {
+                        int total = first+second;
+                        return total;
+                    }
+                }
+                """);
+
+        assertEquals(2, lines(result, "spaces-around-operators").size(), "a missing space on both sides of '+'");
+        assertEquals(1, result.countedViolations());
+        assertEquals(MAX_SCORE - result.violations().getFirst().rule().weight(), result.score().getAsDouble());
+    }
+
+    private StudentStyleResult check(String fileName, String source) throws IOException {
+        return checker(temporary.resolve("template")).check(submission(Map.of(fileName, write(fileName, source))));
+    }
+
+    private static StyleChecker checker(Path templateFolder) {
+        return new StyleChecker(new StyleSettings(Path.of("config/checkstyle.xml"),
+                Path.of("config/style-rules.properties"), templateFolder, MAX_SCORE));
+    }
+
+    private Path write(String fileName, String source) throws IOException {
+        Path folder = Files.createDirectories(temporary.resolve("student"));
+        return Files.writeString(folder.resolve(fileName), source);
+    }
+
+    private SubmissionValidationResult submission(Map<String, Path> sources) {
+        return new SubmissionValidationResult(temporary, "alice.2026", null, Map.of(), List.of(),
+                HeaderIdentity.unknown(), List.of(), sources);
+    }
+
+    private static List<Integer> lines(StudentStyleResult result, String ruleId) {
+        return result.violations().stream()
+                .filter(violation -> violation.rule().id().equals(ruleId))
+                .map(StyleViolation::line)
+                .toList();
+    }
+}

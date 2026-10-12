@@ -1,0 +1,32 @@
+package grading.submission;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+/** An already extracted submission folder, which should itself be named after the username. */
+public final class FolderSubmission extends SubmissionSource {
+
+    FolderSubmission(Path path) {
+        super(path);
+    }
+
+    @Override
+    public Path open(Path staging, List<SubmissionFinding> findings) {
+        return path();
+    }
+
+    @Override
+    public String expectedLocation(String username, String questionFolder, String fileName) {
+        return questionFolder + "/" + fileName;
+    }
+
+    @Override
+    public Optional<SubmissionFinding> checkUsernameFolder(Path content, String username) {
+        Path folderName = path().getFileName();
+        if (folderName == null || folderName.toString().equalsIgnoreCase(username)) {
+            return Optional.empty();
+        }
+        return Optional.of(wrongUsernameFolder("Folder " + folderName + " was normalized as " + username + "."));
+    }
+}

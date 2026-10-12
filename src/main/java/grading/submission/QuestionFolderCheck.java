@@ -1,0 +1,22 @@
+package grading.submission;
+
+import grading.assessment.AssessmentDefinition;
+import java.io.IOException;
+import java.util.List;
+
+/** Reports each question folder (Q1, Q2, ...) that is missing from the submission. */
+public final class QuestionFolderCheck implements SubmissionCheck {
+
+    @Override
+    public void inspect(SubmissionContext submission, List<SubmissionFinding> findings) throws IOException {
+        for (String folder : AssessmentDefinition.questionFolders()) {
+            if (!FileSearch.containsFolderNamed(submission.content(), folder)) {
+                findings.add(new SubmissionFinding(
+                        FindingSeverity.WARNING,
+                        "MISSING_QUESTION_FOLDER",
+                        folder + " was missing; it will be created if its Java file can be found.",
+                        true));
+            }
+        }
+    }
+}

@@ -1,0 +1,98 @@
+package grading.submission;
+
+import grading.assessment.AssessmentDefinition;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.text.Normalizer;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Decides which student a submission belongs to, from its ZIP or folder name and, when that is
+ * still a template name, from the email in its Java headers.
+ */
+final class UsernameResolver {
+
+    /** A trailing intake year, as in jiagu.wen.2025. */
+    static final Pattern TRAILING_YEAR = Pattern.compile("[._-](?:19|20)\\d{2}$");
+    // the LMS prefixes downloaded files with the academic year, as in 2023-2024-jiagu.wen.2025.zip
+    private static final Pattern ACADEMIC_YEAR_PREFIX = Pattern.compile("^(?:19|20)\\d{2}-(?:19|20)\\d{2}-(.+)$");
+    private static final Set<String> GENERIC_NAMES = Set.of("submission", "submissions", "student", "students");
+    private static final String ZIP_EXTENSION = ".zip";
+
+    /** The username suggested by the ZIP or folder name, without extension or academic-year prefix. */
+    Optional<String> candidate(Path submission) {
+        if (submission.getFileName() == null) {
+            return Optional.empty();
+        }
+        String name = submission.getFileName().toString();
+        if (name.toLowerCase(Locale.ROOT).endsWith(ZIP_EXTENSION)) {
+            name = name.substring(0, name.length() - ZIP_EXTENSION.length());
+        }
+        Matcher academicYearPrefix = ACADEMIC_YEAR_PREFIX.matcher(name);
+        if (academicYearPrefix.matches()) {
+            name = academicYearPrefix.group(1);
+        }
+        return name.isBlank() ? Optional.empty() : Optional.of(name);
+    }
+
+    /** True for the template folder name and other names that identify no one. */
+    boolean isGeneric(String name) {
+        String normalized = normalizeIdentifier(name);
+        return normalized.equals(normalizeIdentifier(AssessmentDefinition.templateFolder()))
+                || GENERIC_NAMES.contains(normalized);
+    }
+
+    String resolve(Path submission, HeaderIdentity identity, List<SubmissionFinding> findings) {
+        Optional<String> fileCandidate = candidate(submission);
+        if (fileCandidate.isPresent() && !isGeneric(fileCandidate.get())) {
+            return fileCandidate.get();
+        }
+
+        if (identity.email().isPresent()) {
+            String inferred = identity.email().get().substring(0, identity.email().get().indexOf('@'));
+            findings.add(new SubmissionFinding(
+                    FindingSeverity.WARNING,
+                    "WRONG_SUBMISSION_NAME",
+                    "The ZIP/folder still used a generic or template name; the normalized copy uses "
+                            + inferred + " from a consistent Java header email.",
+                    true));
+            return inferred;
+        }
+
+        String placeholder = IdentitySuggestions.PLACEHOLDER_PREFIX + Integer.toUnsignedString(
+                submission.toAbsolutePath().normalize().toString().hashCode(), Character.MAX_RADIX);
+        findings.add(new SubmissionFinding(
+                FindingSeverity.ERROR,
+                "USERNAME_UNKNOWN",
+                "The submission still uses a generic/template name and no header email was available "
+                        + "to identify the student. It was isolated as " + placeholder + ".",
+                false));
+        return placeholder;
+    }
+
+    /** A folder name for the normalized copy that is safe on every platform and not yet used. */
+    String outputFolderName(String username, Set<String> usedNames, Path workspace) {
+        String base = Normalizer.normalize(username, Normalizer.Form.NFKC)
+                .replaceAll("[<>:\"/\\\\|?*\\p{Cntrl}]", "_")
+                .replaceAll("[. ]+$", "")
+                .trim();
+        if (base.isBlank()) {
+            base = IdentitySuggestions.PLACEHOLDER_PREFIX + "submission";
+        }
+        String candidate = base;
+        int suffix = 2;
+        while (!usedNames.add(candidate.toLowerCase(Locale.ROOT)) || Files.exists(workspace.resolve(candidate))) {
+            candidate = base + "-" + suffix++;
+        }
+        return candidate;
+    }
+
+    static String normalizeIdentifier(String value) {
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+    }
+}

@@ -122,6 +122,9 @@
             <Button fx:id="writeScoresButton" text="Write scores" disable="true"
                     styleClass="score-sheet-button" onAction="#writeScoresToSheet"
                     accessibleText="Write each student's total into the imported score sheet"/>
+            <Button fx:id="saveReportsButton" text="Save reports" disable="true"
+                    styleClass="score-sheet-button" onAction="#saveReports"
+                    accessibleText="Save the latest grading attempt's PDF reports as a ZIP file"/>
             <Button fx:id="resolveIssuesButton" text="Resolve issues" visible="false" managed="false"
                     styleClass="resolution-button" onAction="#resolveSubmissionIssues"/>
             <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"/>

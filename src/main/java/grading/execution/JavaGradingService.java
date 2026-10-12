@@ -2,6 +2,7 @@ package grading.execution;
 
 import grading.assessment.AssessmentDefinition;
 import grading.assessment.QuestionFiles;
+import grading.config.GradingSettings;
 import grading.submission.SubmissionValidationResult;
 import grading.tester.TesterValidationResult;
 import java.io.IOException;
@@ -12,22 +13,34 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 
-// Compiles and grades default-package assessment sources
+/**
+ * Grades students by compiling each question's official tester together with the student's sources
+ * and running it in a separate, time-limited JVM. Each question is graded independently, so a
+ * missing file, compilation error or crash costs only that question.
+ *
+ * <p>The steps are delegated: {@link TesterCompiler} compiles, {@link TesterRunner} runs,
+ * {@link TimeoutRecovery} re-runs a tester whose test case hung, and {@link BatchGrader} grades
+ * several students at the same time.
+ */
 public final class JavaGradingService {
 
     private final Duration compilationTimeout;
     private final Duration executionTimeout;
+    private final int parallelStudents;
     private final Consumer<String> log;
-    private final BoundedProcessRunner runner = new BoundedProcessRunner();
+    private final ProcessRunner runner;
+    private final TesterCompiler compiler;
+    private final TesterRunner testerRunner;
+    private final TimeoutRecovery timeoutRecovery;
 
     public JavaGradingService() {
         this(System.out::println);
     }
 
+    /** Uses the time limits from the grading settings. */
     public JavaGradingService(Consumer<String> log) {
-        this(Duration.ofSeconds(30), Duration.ofSeconds(5), log);
+        this(GradingSettings.current().compileTimeout(), GradingSettings.current().executionTimeout(), log);
     }
 
     public JavaGradingService(Duration compilationTimeout, Duration executionTimeout) {
@@ -36,9 +49,20 @@ public final class JavaGradingService {
 
     public JavaGradingService(Duration compilationTimeout, Duration executionTimeout,
             Consumer<String> log) {
+        this(compilationTimeout, executionTimeout, GradingSettings.current().parallelStudents(), log,
+                new BoundedProcessRunner(GradingSettings.current().maxOutputBytes()));
+    }
+
+    JavaGradingService(Duration compilationTimeout, Duration executionTimeout, int parallelStudents,
+            Consumer<String> log, ProcessRunner runner) {
         this.compilationTimeout = requirePositive(compilationTimeout);
         this.executionTimeout = requirePositive(executionTimeout);
+        this.parallelStudents = parallelStudents;
         this.log = Objects.requireNonNull(log, "log");
+        this.runner = Objects.requireNonNull(runner, "runner");
+        this.compiler = new TesterCompiler(this.compilationTimeout, runner, log);
+        this.testerRunner = new TesterRunner(this.executionTimeout, runner, log);
+        this.timeoutRecovery = new TimeoutRecovery(this::compileAndExecute, this.executionTimeout, log);
     }
 
     /**
@@ -47,130 +71,45 @@ public final class JavaGradingService {
      */
     public CompilationResult compile(QuestionFiles files, Path testerFile)
             throws IOException, InterruptedException {
-        String testerFilename = testerFile.getFileName().toString();
-        var question = AssessmentDefinition.forTester(testerFilename);
-        String questionId = question.id();
-        requirePrepared(files, question, testerFile);
-        Path workspace = Files.createTempDirectory("cs102-grading-");
-        try {
-            Path sources = Files.createDirectory(workspace.resolve("sources"));
-            Path classes = Files.createDirectory(workspace.resolve("classes"));
-            stageDependencies(questionId, files.supportClasses(), classes, "support class");
-            // Testers open relative filenames from their JVM's working directory.
-            stageDependencies(questionId, files.runtimeFiles(), workspace, "runtime file");
-            Path emptySourcepath = Files.createDirectory(workspace.resolve("empty-sourcepath"));
-            List<String> command = new ArrayList<>(List.of(
-                    jdkTool("javac"), "-J-Xmx256m", "-encoding", "UTF-8", "--release", "21",
-                    "-proc:none", "-implicit:none", "-classpath", classes.toString(),
-                    "-sourcepath", emptySourcepath.toString(), "-d", classes.toString()));
-            for (Path source : Stream.concat(files.sources().stream(), Stream.of(testerFile)).toList()) {
-                String filename = source.getFileName().toString();
-                Path copy = sources.resolve(filename);
-                // no replacement: duplicate filenames must not overwrite a student or official tester
-                Files.copy(source, copy);
-                command.add(copy.toString());
-            }
-            log.accept("[" + questionId + "] Compiling " + files.sources().stream()
-                    .map(path -> path.getFileName().toString()).toList() + " with " + testerFilename);
-            ProcessResult process = runner.run(command, workspace, compilationTimeout);
-            logProcess(questionId, "Compilation", process);
-            return new CompilationResult(questionId, testerFilename.replaceFirst("\\.java$", ""),
-                    workspace, process);
-        } catch (IOException | InterruptedException | RuntimeException failure) {
-            try {
-                CompilationResult.deleteWorkspace(workspace);
-            } catch (IOException cleanupFailure) {
-                failure.addSuppressed(cleanupFailure);
-            }
-            throw failure;
-        }
+        return compiler.compile(files, testerFile);
     }
 
-    // Runs only the tester's main method in a new JVM; does not close the compilation workspace.
+    /** Runs only the tester's main method in a new JVM; does not close the compilation workspace. */
     public QuestionGradingResult execute(CompilationResult compilation) throws IOException, InterruptedException {
-        ProcessResult compiler = compilation.process();
-        if (!compiler.succeeded()) {
-            QuestionGradingResult.Status status = switch (compiler.status()) {
-                case TIMED_OUT -> QuestionGradingResult.Status.COMPILATION_TIMEOUT;
-                case OUTPUT_LIMIT_EXCEEDED -> QuestionGradingResult.Status.OUTPUT_LIMIT_EXCEEDED;
-                case EXITED -> QuestionGradingResult.Status.COMPILATION_ERROR;
-            };
-            return failure(compilation.questionId(), status, compiler, null, "Compilation did not succeed.");
-        }
-        if (!Files.isDirectory(compilation.classesDirectory())) {
-            throw new IOException("Compilation workspace is closed or missing.");
-        }
-        log.accept("[" + compilation.questionId() + "] Running " + compilation.testerClass());
-        ProcessResult execution = runner.run(List.of(
-                jdkTool("java"), "-Xmx256m", "-XX:-CreateCoredumpOnCrash",
-                "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
-                "-Djava.io.tmpdir=" + compilation.workspace(),
-                "-cp", compilation.classesDirectory().toString(),
-                compilation.testerClass()), compilation.workspace(), executionTimeout);
-        logProcess(compilation.questionId(), "Execution", execution);
-        List<String> lines = execution.stdout().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
-        int passed = (int) lines.stream().filter("Passed"::equals).count();
-        int failed = (int) lines.stream().filter(line -> line.equals("Failed") || line.startsWith("Failed ->")).count();
-
-        // AI-assisted fix (ChatGPT): preserve completed unit-mark tests on timeout.
-        // The supplied assessment testers award one mark per exact "Passed" line.
-        // Keep the timeout status: remaining tests were not completed or awarded marks.
-        if (execution.status() == ProcessResult.Status.TIMED_OUT) {
-            return new QuestionGradingResult(compilation.questionId(), QuestionGradingResult.Status.EXECUTION_TIMEOUT,
-                    passed, passed, failed, compiler, execution,
-                    "Execution timed out. Retained " + passed
-                            + " mark(s) from completed one-mark tests; unfinished tests earn no marks.");
-        }
-        if (!execution.succeeded()) {
-            QuestionGradingResult.Status status = switch (execution.status()) {
-                case TIMED_OUT -> QuestionGradingResult.Status.EXECUTION_TIMEOUT;
-                case OUTPUT_LIMIT_EXCEEDED -> QuestionGradingResult.Status.OUTPUT_LIMIT_EXCEEDED;
-                case EXITED -> QuestionGradingResult.Status.RUNTIME_ERROR;
-            };
-            return failure(compilation.questionId(), status, compiler, execution, "Tester did not finish successfully.");
-        }
-
-        double score;
-        try {
-            score = Double.parseDouble(lines.isEmpty() ? "" : lines.getLast());
-            if (!Double.isFinite(score) || score < 0) {
-                throw new NumberFormatException();
-            }
-        } catch (NumberFormatException exception) {
-            return failure(compilation.questionId(), QuestionGradingResult.Status.INVALID_SCORE, compiler, execution,
-                    "Tester must print a finite, nonnegative score as its last nonblank stdout line.");
-        }
-        return new QuestionGradingResult(compilation.questionId(), QuestionGradingResult.Status.GRADED,
-                score, passed, failed, compiler, execution, "Graded using the tester's final score.");
+        return testerRunner.run(compilation);
     }
 
-    // compiles, executes, and removes all temporary files, including after failure
+    /** Compiles, runs and, after a timeout, recovers one question; temporary files are always removed. */
     public QuestionGradingResult gradeQuestion(QuestionFiles files, Path testerFile)
             throws IOException, InterruptedException {
         String questionId = AssessmentDefinition.forTester(testerFile.getFileName().toString()).id();
-        try (CompilationResult compilation = compile(files, testerFile)) {
-            QuestionGradingResult result = execute(compilation);
-            log.accept("[" + questionId + "] " + result.status() + " | Score: " + result.score()
-                    + " | Passed: " + result.passedTests() + " | Failed: " + result.failedTests());
-            return result;
-        } catch (IOException exception) {
-            log.accept("[" + questionId + "] Grading stopped: " + exception.getMessage());
-            throw exception;
+        QuestionGradingResult result = compileAndExecute(files, testerFile);
+        if (result.status() == QuestionGradingResult.Status.EXECUTION_TIMEOUT) {
+            result = timeoutRecovery.recover(files, testerFile, result);
         }
+        log.accept("[" + questionId + "] " + result.status() + " | Score: " + result.score()
+                + " | Passed: " + result.passedTests() + " | Failed: " + result.failedTests());
+        return result;
     }
 
-    // Input/preparation failures stop grading instead of awarding misleading zero scores.
+    /**
+     * Grades every question of one confirmed submission. A missing question scores zero and a
+     * grading failure is recorded against its own question, so one problem never stops the rest.
+     */
     public StudentGradingResult gradeStudent(SubmissionValidationResult submission, TesterValidationResult testers)
-            throws IOException, InterruptedException {
-        requirePrepared(submission, testers);
+            throws InterruptedException {
+        requireValid(testers);
+        if (!submission.isReadyForGrading()) {
+            throw new IllegalArgumentException("Confirm the identity of " + submission.username()
+                    + " before grading this submission.");
+        }
         log.accept("\n=== Student: " + submission.username() + " ===");
         List<QuestionGradingResult> questions = new ArrayList<>();
         for (var question : AssessmentDefinition.QUESTIONS) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedException("Grading cancelled.");
             }
-            questions.add(gradeQuestion(submission.questionFiles().get(question.id()),
-                    testers.testerFiles().get(question.testerFilename())));
+            questions.add(gradeSubmittedQuestion(submission, question, testers));
         }
         StudentGradingResult result = new StudentGradingResult(submission.username(), questions);
         log.accept("[" + result.username() + "] Question scores: " + result.questionScores()
@@ -178,79 +117,72 @@ public final class JavaGradingService {
         return result;
     }
 
-    // processes students in input order
-    // interruption cancels the batch after terminating active processes.
-    public List<StudentGradingResult> gradeBatch(List<SubmissionValidationResult> submissions, TesterValidationResult testers)
-            throws IOException, InterruptedException {
-        // Check the entire batch before calculating any scores; compile rechecks before copying.
+    /**
+     * Grades every submission whose owner is confirmed, several students at a time, and returns the
+     * results in input order; the others are skipped and logged. Interruption cancels the batch
+     * after every running process has been terminated.
+     */
+    public List<StudentGradingResult> gradeBatch(List<SubmissionValidationResult> submissions,
+            TesterValidationResult testers) throws IOException, InterruptedException {
+        // Testers are shared by every student, so check them before calculating any scores.
+        requireValid(testers);
+        requireReadable(testers);
+        List<SubmissionValidationResult> gradable = new ArrayList<>();
         for (SubmissionValidationResult submission : submissions) {
-            requirePrepared(submission, testers);
-        }
-        List<StudentGradingResult> results = new ArrayList<>();
-        for (SubmissionValidationResult submission : submissions) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Grading cancelled.");
+            if (submission.isReadyForGrading()) {
+                gradable.add(submission);
+            } else {
+                log.accept("\n=== Skipped: " + submission.username()
+                        + " (confirm the student's identity, then grade again) ===");
             }
-            results.add(gradeStudent(submission, testers));
         }
-        return List.copyOf(results);
+        return new BatchGrader(parallelStudents, log).grade(gradable,
+                (submission, studentLog) -> withLog(studentLog).gradeStudent(submission, testers));
     }
 
-    private static QuestionGradingResult failure(String questionId, QuestionGradingResult.Status status,
-            ProcessResult compilation, ProcessResult execution, String message) {
-        return new QuestionGradingResult(questionId, status, 0, 0, 0, compilation, execution, message);
+    /** The same grader writing its log somewhere else. */
+    private JavaGradingService withLog(Consumer<String> otherLog) {
+        return new JavaGradingService(compilationTimeout, executionTimeout, parallelStudents, otherLog, runner);
     }
 
-    private void logProcess(String question, String stage, ProcessResult process) {
-        log.accept("[" + question + "] " + stage + ": " + process.status() + ", exit " + process.exitCode()
-                + ", " + process.duration().toMillis() + " ms");
-        if (!process.stdout().isBlank()) {
-            log.accept(process.stdout());
+    private QuestionGradingResult gradeSubmittedQuestion(SubmissionValidationResult submission,
+            AssessmentDefinition.Question question, TesterValidationResult testers) throws InterruptedException {
+        QuestionFiles files = submission.files(question);
+        List<String> missing = files.missingFiles(question);
+        if (!missing.isEmpty()) {
+            log.accept("[" + question.id() + "] Not graded: missing " + missing);
+            return QuestionGradingResult.zero(question.id(), QuestionGradingResult.Status.MISSING_FILES, null, null,
+                    "Missing " + String.join(", ", missing) + "; this question scores 0.");
         }
-        if (!process.stderr().isBlank()) {
-            log.accept("[" + question + "] " + stage + " stderr:\n" + process.stderr());
+        try {
+            return gradeQuestion(files, testers.testerFiles().get(question.testerFilename()));
+        } catch (IOException | RuntimeException exception) {
+            log.accept("[" + question.id() + "] Grading stopped: " + exception.getMessage());
+            return QuestionGradingResult.zero(question.id(), QuestionGradingResult.Status.GRADING_ERROR, null, null,
+                    "Grading stopped: " + exception.getMessage() + " This question scores 0 until it is graded again.");
         }
     }
 
-    private void stageDependencies(String question, List<Path> files, Path destination, String role) throws IOException {
-        for (Path file : files) {
-            Files.copy(file, destination.resolve(file.getFileName()));
-            log.accept("[" + question + "] Staged " + role + ": " + file.getFileName());
+    private QuestionGradingResult compileAndExecute(QuestionFiles files, Path testerFile)
+            throws IOException, InterruptedException {
+        try (CompilationResult compilation = compile(files, testerFile)) {
+            return execute(compilation);
         }
     }
 
-    private static void requirePrepared(SubmissionValidationResult submission, TesterValidationResult testers)
-            throws IOException {
+    private static void requireValid(TesterValidationResult testers) {
         if (!testers.isValid()) {
             throw new IllegalArgumentException("Import and validate all required tester files before grading.");
         }
-        if (!submission.isReadyForGrading()) {
-            throw new IllegalArgumentException("Resolve submission validation errors before grading: " + submission.username());
-        }
-        for (var question : AssessmentDefinition.QUESTIONS) {
-            requirePrepared(submission.questionFiles().get(question.id()), question,
-                    testers.testerFiles().get(question.testerFilename()));
-        }
     }
 
-    private static void requirePrepared(QuestionFiles files, AssessmentDefinition.Question question, Path tester)
-            throws IOException {
-        if (!files.matches(question)) {
-            throw new IOException("Incomplete or unexpected files for " + question.id() + ". Import the submission again.");
+    private static void requireReadable(TesterValidationResult testers) throws IOException {
+        for (Path file : testers.testerFiles().values()) {
+            if (!Files.isRegularFile(file) || !Files.isReadable(file)) {
+                throw new IOException("Required tester file is missing or unreadable: " + file
+                        + ". Import the testers again.");
+            }
         }
-        files.requireReadable();
-        if (!Files.isRegularFile(tester) || !Files.isReadable(tester)) {
-            throw new IOException("Required tester is missing or unreadable: " + tester + ". Import the testers again.");
-        }
-    }
-
-    private static String jdkTool(String name) throws IOException {
-        boolean windows = System.getProperty("os.name").startsWith("Windows");
-        Path tool = Path.of(System.getProperty("java.home"), "bin", name + (windows ? ".exe" : ""));
-        if (!Files.isExecutable(tool)) {
-            throw new IOException("A full JDK 21 or newer is required; missing tool: " + tool);
-        }
-        return tool.toString();
     }
 
     private static Duration requirePositive(Duration timeout) {

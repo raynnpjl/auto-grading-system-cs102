@@ -2,9 +2,19 @@ package grading.execution;
 
 import java.time.Duration;
 
+/**
+ * How an external process ended and what it printed.
+ *
+ * @param status   whether it exited by itself or was stopped
+ * @param exitCode the exit code; meaningful only when it exited by itself
+ * @param stdout   captured standard output, possibly truncated at the output limit
+ * @param stderr   captured standard error, possibly truncated at the output limit
+ * @param duration how long it ran
+ */
 public record ProcessResult(
         Status status, int exitCode, String stdout, String stderr, Duration duration) {
 
+    /** Whether the process exited by itself or was stopped for exceeding a limit. */
     public enum Status {
         EXITED, TIMED_OUT, OUTPUT_LIMIT_EXCEEDED
     }

@@ -8,6 +8,7 @@ import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 
+/** Starts the desktop application and stops any grading still running when the window closes. */
 public class AutoGradingApplication extends Application {
 
     private MainViewController controller;

@@ -1,0 +1,81 @@
+package grading.reporting;
+
+import grading.common.Messages;
+import grading.execution.QuestionGradingResult;
+import grading.execution.StudentGradingResult;
+import grading.scoring.ScoreBreakdown;
+import grading.style.StudentStyleResult;
+import grading.submission.FindingSeverity;
+import grading.submission.SubmissionFinding;
+import grading.submission.SubmissionValidationResult;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Everything one grading attempt found out about one student. Parts that were not produced, such as
+ * the grading of a student who was skipped, are null.
+ *
+ * @param submission the prepared submission
+ * @param grading    the tester results, or null when the student was not graded
+ * @param style      the style check, or null when style was not checked
+ * @param score      the mark breakdown, or null when the student was not graded
+ */
+public record StudentOutcome(SubmissionValidationResult submission, StudentGradingResult grading,
+        StudentStyleResult style, ScoreBreakdown score) {
+
+    public StudentOutcome {
+        Objects.requireNonNull(submission, "submission");
+    }
+
+    public String username() {
+        return submission.username();
+    }
+
+    public boolean graded() {
+        return grading != null;
+    }
+
+    /**
+     * Why a person should look at this student before the marks are released; empty when none.
+     * Results that cannot be read are themselves a reason, never an error.
+     */
+    public List<String> reviewReasons() {
+        List<String> reasons = new ArrayList<>();
+        try {
+            addReviewReasons(reasons);
+        } catch (RuntimeException exception) {
+            reasons.add("Some results for this student could not be read (" + Messages.describe(exception)
+                    + "); check them by hand.");
+        }
+        return List.copyOf(reasons);
+    }
+
+    private void addReviewReasons(List<String> reasons) {
+        if (!submission.isReadyForGrading()) {
+            reasons.add("Not graded: the student's identity must be confirmed first.");
+        }
+        long unresolved = submission.findings().stream()
+                .filter(finding -> finding.severity() == FindingSeverity.ERROR && !finding.corrected())
+                .count();
+        if (unresolved > 0) {
+            reasons.add(unresolved + " submission problem(s) could not be corrected automatically.");
+        }
+        if (submission.findings().stream().map(SubmissionFinding::code).anyMatch("DUPLICATE_USERNAME"::equals)) {
+            reasons.add("Another submission uses the same username.");
+        }
+        if (grading != null) {
+            for (QuestionGradingResult question : grading.questions()) {
+                if (question.status() != QuestionGradingResult.Status.GRADED) {
+                    reasons.add(question.questionId() + ": " + PlainLanguage.status(question.status()) + ".");
+                }
+            }
+        }
+        if (style == null || style.incomplete()) {
+            reasons.add("Style could not be fully checked.");
+        } else if (style.violations().stream()
+                .anyMatch(violation -> violation.rule() != null && violation.rule().heuristic())) {
+            reasons.add("A style finding is a heuristic and should be confirmed by a person.");
+        }
+    }
+}

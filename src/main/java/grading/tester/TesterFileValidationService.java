@@ -1,6 +1,8 @@
 package grading.tester;
 
 import grading.assessment.AssessmentDefinition;
+import grading.common.Messages;
+import grading.config.GradingSettings;
 
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionFinding;
@@ -20,9 +22,18 @@ import java.util.stream.Stream;
 /** Validates the supplied assessment tester folder without modifying it. */
 public final class TesterFileValidationService {
 
-    private static final long MAX_TESTER_FILE_BYTES = 2L * 1024 * 1024;
     private static final Pattern MAIN_METHOD_PATTERN = Pattern.compile(
             "\\bstatic\\s+void\\s+main\\s*\\(");
+
+    private final long maxTesterFileBytes;
+
+    public TesterFileValidationService() {
+        this(GradingSettings.current());
+    }
+
+    public TesterFileValidationService(GradingSettings settings) {
+        this.maxTesterFileBytes = settings.maxTesterFileBytes();
+    }
 
     public TesterValidationResult validate(Path folder) throws IOException {
         if (folder == null || !Files.isDirectory(folder) || !Files.isReadable(folder)) {
@@ -95,7 +106,7 @@ public final class TesterFileValidationService {
             String requiredFile,
             List<SubmissionFinding> findings) {
         try {
-            if (Files.size(testerFile) > MAX_TESTER_FILE_BYTES) {
+            if (Files.size(testerFile) > maxTesterFileBytes) {
                 findings.add(finding(
                         FindingSeverity.ERROR,
                         "TESTER_FILE_TOO_LARGE",
@@ -122,7 +133,7 @@ public final class TesterFileValidationService {
             findings.add(finding(
                     FindingSeverity.ERROR,
                     "TESTER_FILE_UNREADABLE",
-                    "Could not inspect " + requiredFile + ": " + safeMessage(exception)));
+                    "Could not inspect " + requiredFile + ": " + Messages.describe(exception)));
         }
     }
 
@@ -130,8 +141,4 @@ public final class TesterFileValidationService {
         return new SubmissionFinding(severity, code, message, false);
     }
 
-    private String safeMessage(Throwable failure) {
-        String message = failure.getMessage();
-        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
-    }
 }

@@ -115,6 +115,8 @@ class SubmissionPreparationServiceTest {
         SubmissionValidationResult validResult = resultFor(results, "dana.2026");
         assertTrue(brokenResult.hasErrors());
         assertTrue(hasFinding(brokenResult, "MISSING_JAVA_FILE", false));
+        assertTrue(brokenResult.isReadyForGrading(), "missing files must not hold the student back");
+        assertEquals(List.of("Q1b", "Q2a", "Q2b", "Q3"), brokenResult.missingQuestions());
         assertTrue(validResult.isReadyForGrading(), validResult.findings().toString());
     }
 
@@ -160,6 +162,7 @@ class SubmissionPreparationServiceTest {
         assertTrue(result.username().startsWith("unknown-"));
         assertTrue(hasFinding(result, "USERNAME_UNKNOWN", false));
         assertTrue(hasFinding(result, "MISSING_HEADER_EMAIL", false));
+        assertFalse(result.isReadyForGrading(), "an unidentified owner must be confirmed before grading");
     }
 
     @Test
@@ -255,7 +258,8 @@ class SubmissionPreparationServiceTest {
             }
         }
 
-        SubmissionValidationResult prepared = service.prepareBatch(input, tempDirectory.resolve("normalized")).getFirst();
+        SubmissionValidationResult prepared = service.prepareBatch(input, tempDirectory.resolve("normalized"))
+                .getFirst();
         SubmissionValidationResult corrected = new SubmissionCorrectionService(service).applyIdentity(prepared,
                 new StudentIdentity("alice.2026", "Alice Example", "alice.2026@school.example"),
                 tempDirectory.resolve("corrected"));
@@ -276,16 +280,20 @@ class SubmissionPreparationServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"Q2/personstester.txt", "Q2/studentstester.txt", "Q2/DataException.class",
         "Q3/Shape.class", "Q3/Circle.class", "Q3/Rectangle.class"})
-    void blocksGradingWhenAnyRequiredDependencyIsMissing(String relative) throws IOException {
+    void missingDependencyIsReportedAndCostsOnlyItsQuestion(String relative) throws IOException {
         Path student = Files.createDirectory(tempDirectory.resolve("alice.2026"));
         createRequiredFiles(student, COMPLETE_HEADER);
         Files.delete(student.resolve(relative));
 
-        SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized")).getFirst();
+        SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized"))
+                .getFirst();
 
-        assertFalse(result.isReadyForGrading());
+        assertTrue(result.isReadyForGrading(), result.findings().toString());
         assertTrue(result.findings().stream().anyMatch(finding -> finding.code().equals("MISSING_DEPENDENCY")
-                && finding.message().contains(relative) && finding.nextStep().isPresent()), result.findings().toString());
+                && finding.message().contains(relative) && finding.nextStep().isPresent()), result.findings()
+                        .toString());
+        assertEquals(1, result.missingQuestions().size(), result.missingQuestions().toString());
+        assertTrue(result.missingQuestions().getFirst().startsWith(relative.substring(0, 2)));
     }
 
     @ParameterizedTest
@@ -298,13 +306,68 @@ class SubmissionPreparationServiceTest {
         var permissions = Files.getPosixFilePermissions(dependency);
         try {
             Files.setPosixFilePermissions(dependency, java.util.Set.of());
-            org.junit.jupiter.api.Assumptions.assumeFalse(Files.isReadable(dependency), "Privileged user can still read this file");
-            SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized")).getFirst();
-            assertFalse(result.isReadyForGrading());
+            org.junit.jupiter.api.Assumptions.assumeFalse(Files.isReadable(dependency),
+                    "Privileged user can still read this file");
+            SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized"))
+                    .getFirst();
+            assertTrue(result.isReadyForGrading(), result.findings().toString());
             assertTrue(hasFinding(result, "DEPENDENCY_UNREADABLE", false), result.findings().toString());
+            assertFalse(result.missingQuestions().isEmpty());
         } finally {
             Files.setPosixFilePermissions(dependency, permissions);
         }
+    }
+
+    @Test
+    void recordsCorrectionsHeaderDetailsAndAnUnmodifiedCopyOfEachSource() throws IOException {
+        Path zip = tempDirectory.resolve("2023-2024-bob.2026.zip");
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (var entry : AssessmentDefinition.sourceFiles().entrySet()) {
+            entries.put(entry.getValue() + "/" + entry.getKey(), javaSource("// Name: Bob Example\n"));
+        }
+        addDependencies(entries, "");
+        createZip(zip, entries);
+
+        SubmissionValidationResult result = service.prepareBatch(zip, tempDirectory.resolve("normalized")).getFirst();
+
+        assertEquals("Bob Example", result.author().name().orElseThrow());
+        assertTrue(result.author().email().isEmpty());
+        assertTrue(result.corrections().contains(new FileCorrection("2023-2024-bob.2026.zip/Q1/Q1a.java",
+                "bob.2026/Q1/Q1a.java", "Moved to where the assessment expects it.")), result.corrections().toString());
+        assertTrue(result.corrections().stream().anyMatch(correction -> correction.corrected().equals(
+                "bob.2026/Q1/Q1a.java") && correction.change().contains("Student email: bob.2026@smu.edu.sg")));
+        Path original = result.originalSources().get("Q1a.java");
+        assertEquals(javaSource("// Name: Bob Example\n"), Files.readString(original), "the copy is as submitted");
+        assertTrue(Files.readString(result.normalizedRoot().resolve("Q1/Q1a.java")).contains("Student email"));
+    }
+
+    @Test
+    void missingSourceFileCostsOnlyItsOwnQuestion() throws IOException {
+        Path student = Files.createDirectory(tempDirectory.resolve("alice.2026"));
+        createRequiredFiles(student, COMPLETE_HEADER);
+        Files.delete(student.resolve("Q3/ShapeComparator.java"));
+
+        SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized"))
+                .getFirst();
+
+        assertTrue(result.isReadyForGrading(), result.findings().toString());
+        assertTrue(hasFinding(result, "MISSING_JAVA_FILE", false));
+        assertEquals(List.of("Q3"), result.missingQuestions());
+    }
+
+    @Test
+    void oversizedSourceIsLeftOutOfGrading() throws IOException {
+        Path student = Files.createDirectory(tempDirectory.resolve("alice.2026"));
+        createRequiredFiles(student, COMPLETE_HEADER);
+        Files.writeString(student.resolve("Q1/Q1b.java"), COMPLETE_HEADER + "//" + "x".repeat(3 * 1024 * 1024));
+
+        SubmissionValidationResult result = service.prepareBatch(student, tempDirectory.resolve("normalized"))
+                .getFirst();
+
+        assertTrue(result.isReadyForGrading(), result.findings().toString());
+        assertTrue(hasFinding(result, "JAVA_FILE_TOO_LARGE", false));
+        assertEquals(List.of("Q1b"), result.missingQuestions());
+        assertFalse(Files.exists(result.normalizedRoot().resolve("Q1/Q1b.java")));
     }
 
     private void createRequiredFiles(Path root, String header) throws IOException {

@@ -1,0 +1,13 @@
+package grading.submission;
+
+import java.io.IOException;
+import java.util.List;
+
+/**
+ * One check of how a submission is arranged. Checks only report; they never change files. A new
+ * kind of anomaly is detected by adding an implementation to the preparation service's checks.
+ */
+public interface SubmissionCheck {
+
+    void inspect(SubmissionContext submission, List<SubmissionFinding> findings) throws IOException;
+}

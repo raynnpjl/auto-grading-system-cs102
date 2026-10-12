@@ -1,0 +1,79 @@
+package grading.submission;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+/** Case-insensitive searches of a submission's folder tree, which students name inconsistently. */
+final class FileSearch {
+
+    private FileSearch() {
+    }
+
+    static List<Path> javaFiles(Path root) throws IOException {
+        try (Stream<Path> paths = Files.walk(root)) {
+            return paths
+                    .filter(Files::isRegularFile)
+                    .filter(FileSearch::isJavaSource)
+                    .sorted()
+                    .toList();
+        }
+    }
+
+    /** Every file with the name anywhere under root; the list can be re-sorted by the caller. */
+    static List<Path> filesNamed(Path root, String fileName) throws IOException {
+        try (Stream<Path> paths = Files.walk(root)) {
+            return new ArrayList<>(paths
+                    .filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().equalsIgnoreCase(fileName))
+                    .toList());
+        }
+    }
+
+    static boolean containsFolderNamed(Path root, String name) throws IOException {
+        try (Stream<Path> paths = Files.walk(root)) {
+            return paths.anyMatch(path -> Files.isDirectory(path) && path.getFileName() != null
+                    && path.getFileName().toString().equalsIgnoreCase(name));
+        }
+    }
+
+    static Optional<Path> child(Path root, String name) throws IOException {
+        if (!Files.isDirectory(root)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> children = Files.list(root)) {
+            return children
+                    .filter(path -> path.getFileName().toString().equalsIgnoreCase(name))
+                    .findFirst();
+        }
+    }
+
+    static boolean hasChildFolder(Path root, String name) throws IOException {
+        return child(root, name).filter(Files::isDirectory).isPresent();
+    }
+
+    /** Prefers a copy inside the expected question folder, then the shallowest, then by path. */
+    static Comparator<Path> preferringFolder(String folder) {
+        return Comparator
+                .comparing((Path path) -> path.getParent() == null
+                        || path.getParent().getFileName() == null
+                        || !path.getParent().getFileName().toString().equalsIgnoreCase(folder))
+                .thenComparingInt(Path::getNameCount)
+                .thenComparing(path -> path.toString().toLowerCase(Locale.ROOT));
+    }
+
+    static boolean isJavaSource(Path path) {
+        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java");
+    }
+
+    static boolean isZip(Path path) {
+        return Files.isRegularFile(path)
+                && path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip");
+    }
+}

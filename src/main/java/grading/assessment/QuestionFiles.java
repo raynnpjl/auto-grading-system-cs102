@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /** Explicit inputs for one question part; the grader never searches neighbouring files. */
@@ -21,10 +23,22 @@ public record QuestionFiles(List<Path> sources, List<Path> supportClasses, List<
                 && hasNames(runtimeFiles, question.runtimeFiles());
     }
 
+    /** The question's required files that are absent: sources, support classes and runtime files. */
+    public List<String> missingFiles(AssessmentDefinition.Question question) {
+        Set<String> present = Stream.of(sources, supportClasses, runtimeFiles).flatMap(List::stream)
+                .map(file -> file.getFileName().toString())
+                .collect(Collectors.toSet());
+        return Stream.of(question.sources(), question.supportClasses(), question.runtimeFiles())
+                .flatMap(List::stream)
+                .filter(name -> !present.contains(name))
+                .toList();
+    }
+
     public void requireReadable() throws IOException {
         for (Path file : Stream.of(sources, supportClasses, runtimeFiles).flatMap(List::stream).toList()) {
             if (!Files.isRegularFile(file) || !Files.isReadable(file)) {
-                throw new IOException("Required file is missing or unreadable: " + file + ". Import the submission again.");
+                throw new IOException("Required file is missing or unreadable: " + file
+                        + ". Import the submission again.");
             }
         }
     }

@@ -38,7 +38,8 @@ class SubmissionCorrectionServiceTest {
         assertTrue(corrected.isReadyForGrading(), corrected.findings().toString());
         assertTrue(corrected.findings().stream().anyMatch(
                 finding -> finding.code().equals("IDENTITY_CONFIRMED") && finding.corrected()));
-        for (Path javaFile : corrected.questionFiles().values().stream().flatMap(files -> files.sources().stream()).toList()) {
+        for (Path javaFile : corrected.questionFiles().values().stream().flatMap(files -> files.sources().stream())
+                .toList()) {
             String source = Files.readString(javaFile);
             assertTrue(source.contains("Verified student username: jane.tan.2026"));
             assertTrue(source.contains("Verified student name: Jane Tan"));

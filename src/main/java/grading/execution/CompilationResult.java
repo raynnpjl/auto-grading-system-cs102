@@ -1,13 +1,13 @@
 package grading.execution;
 
+import grading.common.FileTrees;
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 
-// Owns the temporary workspace. Close after execution, including failed compilations.
+/**
+ * A compiled tester and the temporary workspace that holds it. The workspace is deleted on close,
+ * so close it after execution, including after a failed compilation.
+ */
 public record CompilationResult(
         String questionId,
         String testerClass,
@@ -20,28 +20,6 @@ public record CompilationResult(
 
     @Override
     public void close() throws IOException {
-        deleteWorkspace(workspace);
-    }
-
-    static void deleteWorkspace(Path workspace) throws IOException {
-        if (!Files.exists(workspace)) {
-            return;
-        }
-        Files.walkFileTree(workspace, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
-                Files.delete(file);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult postVisitDirectory(Path directory, IOException failure) throws IOException {
-                if (failure != null) {
-                    throw failure;
-                }
-                Files.delete(directory);
-                return FileVisitResult.CONTINUE;
-            }
-        });
+        FileTrees.delete(workspace);
     }
 }

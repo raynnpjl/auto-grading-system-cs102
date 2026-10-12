@@ -1,0 +1,16 @@
+package grading.execution;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+
+/** Runs an external command, such as javac or a tester JVM, and captures what it prints. */
+interface ProcessRunner {
+
+    /**
+     * Runs the command in the directory and returns once it exits or is stopped. A process still
+     * running when the timeout ends is stopped and reported as timed out.
+     */
+    ProcessResult run(List<String> command, Path directory, Duration timeout) throws IOException, InterruptedException;
+}

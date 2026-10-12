@@ -25,3 +25,6 @@ dependency-reduced-pom.xml
 .Trashes/
 .fseventsd/
 .TemporaryItems/
+
+# Reports written by grading attempts
+grading-reports/

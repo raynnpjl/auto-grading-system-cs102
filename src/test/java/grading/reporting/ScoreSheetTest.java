@@ -60,6 +60,17 @@ class ScoreSheetTest {
     }
 
     @Test
+    void explainsSpreadsheetDocumentsSavedWithACsvName() throws Exception {
+        Path numbers = temporary.resolve("numbers.csv");
+        Files.write(numbers, new byte[] {0x50, 0x4B, 0x03, 0x04, 0x14, 0x00});
+        assertMessage(numbers, "is a spreadsheet document");
+        assertMessage(numbers, "export it as CSV");
+        Path oldExcel = temporary.resolve("excel.csv");
+        Files.write(oldExcel, new byte[] {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, 0x00});
+        assertMessage(oldExcel, "is a spreadsheet document");
+    }
+
+    @Test
     void rejectsReadOnlySheetsBeforeGradingFinishes() throws Exception {
         assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"));
         Path csv = write("read-only.csv", HEADER + "#1,#amy.tan.2024,_,AMY,a@smu.edu.sg,,20,#\r\n");

@@ -1,0 +1,83 @@
+package grading.execution;
+
+import grading.assessment.QuestionFiles;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.TreeMap;
+import java.util.function.Consumer;
+
+/**
+ * Recovers a question whose tester timed out by re-running it without the test case that did not
+ * finish, as a marker would by hand, until the remaining test cases complete. Unfinished test cases
+ * earn no marks; the official tester file is never changed.
+ */
+final class TimeoutRecovery {
+
+    /** Compiles and runs a tester against a student's files, cleaning up afterwards. */
+    @FunctionalInterface
+    interface QuestionRun {
+        QuestionGradingResult run(QuestionFiles files, Path testerFile) throws IOException, InterruptedException;
+    }
+
+    private final QuestionRun questionRun;
+    private final Duration timeout;
+    private final Consumer<String> log;
+
+    TimeoutRecovery(QuestionRun questionRun, Duration timeout, Consumer<String> log) {
+        this.questionRun = questionRun;
+        this.timeout = timeout;
+        this.log = log;
+    }
+
+    QuestionGradingResult recover(QuestionFiles files, Path testerFile, QuestionGradingResult timedOut)
+            throws IOException, InterruptedException {
+        String questionId = timedOut.questionId();
+        Optional<TesterTestCases> testCases = TesterTestCases.parse(
+                Files.readString(testerFile, StandardCharsets.UTF_8));
+        if (testCases.isEmpty()) {
+            log.accept("[" + questionId + "] Test cases could not be identified in " + testerFile.getFileName()
+                    + "; keeping marks from the test cases that completed.");
+            return timedOut;
+        }
+        Map<Integer, String> skipped = new TreeMap<>();
+        QuestionGradingResult latest = timedOut;
+        Path directory = Files.createTempDirectory("cs102-tester-");
+        Path rewritten = directory.resolve(testerFile.getFileName());
+        try {
+            while (latest.status() == QuestionGradingResult.Status.EXECUTION_TIMEOUT) {
+                String stdout = latest.execution().stdout();
+                OptionalInt unfinished = testCases.get().unfinishedCase(stdout, skipped.keySet());
+                if (unfinished.isEmpty()) {
+                    break;
+                }
+                skipped.put(unfinished.getAsInt(), TesterTestCases.lastStartedDescription(stdout));
+                log.accept("[" + questionId + "] Test case " + unfinished.getAsInt() + " did not finish within "
+                        + timeout.toMillis() + " ms; re-running the remaining test cases without it.");
+                Files.writeString(rewritten, testCases.get().withSkipped(skipped), StandardCharsets.UTF_8);
+                QuestionGradingResult rerun = questionRun.run(files, rewritten);
+                if (rerun.status() == QuestionGradingResult.Status.GRADED) {
+                    return new QuestionGradingResult(questionId, QuestionGradingResult.Status.EXECUTION_TIMEOUT,
+                            rerun.score(), rerun.passedTests(), rerun.failedTests(), rerun.compilation(),
+                            rerun.execution(), "Test case(s) " + skipped.keySet()
+                                    + " did not finish within the time limit and earned no marks;"
+                                    + " the remaining test cases were graded.");
+                }
+                if (rerun.status() != QuestionGradingResult.Status.EXECUTION_TIMEOUT) {
+                    // the rewritten tester failed for another reason; keep the best completed result
+                    break;
+                }
+                latest = rerun;
+            }
+        } finally {
+            Files.deleteIfExists(rewritten);
+            Files.deleteIfExists(directory);
+        }
+        return latest;
+    }
+}
