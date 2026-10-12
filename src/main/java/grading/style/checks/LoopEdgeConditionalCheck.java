@@ -1,0 +1,128 @@
+package grading.style.checks;
+
+import com.puppycrawl.tools.checkstyle.api.AbstractCheck;
+import com.puppycrawl.tools.checkstyle.api.DetailAST;
+import com.puppycrawl.tools.checkstyle.api.TokenTypes;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * CS102 style guide section 8: do not write conditionals in a loop to run code on the first or
+ * last iteration. This is a heuristic: inside a counting {@code for} loop over {@code i}, it reports
+ * an {@code if} that compares {@code i} for equality with the loop's starting value, with the loop's
+ * bound, or with an expression ending in {@code - 1}. It cannot judge intent, so its findings should
+ * be confirmed by a person.
+ */
+public final class LoopEdgeConditionalCheck extends AbstractCheck {
+
+    static final String MESSAGE_KEY = "loop.edge.conditional";
+
+    private static final Set<Integer> COMPARISONS = Set.of(
+            TokenTypes.LT, TokenTypes.LE, TokenTypes.GT, TokenTypes.GE, TokenTypes.NOT_EQUAL);
+
+    @Override
+    public int[] getDefaultTokens() {
+        return getRequiredTokens();
+    }
+
+    @Override
+    public int[] getAcceptableTokens() {
+        return getRequiredTokens();
+    }
+
+    @Override
+    public int[] getRequiredTokens() {
+        return new int[] {TokenTypes.LITERAL_FOR};
+    }
+
+    @Override
+    public void visitToken(DetailAST loop) {
+        LoopCounter counter = LoopCounter.of(loop);
+        if (counter != null) {
+            report(loop.getLastChild(), counter);
+        }
+    }
+
+    private void report(DetailAST node, LoopCounter counter) {
+        if (node == null || SyntaxTrees.isSeparateScope(node)) {
+            return;
+        }
+        if (node.getType() == TokenTypes.LITERAL_IF && testsAnEdge(node.findFirstToken(TokenTypes.EXPR), counter)) {
+            log(node, MESSAGE_KEY, counter.name());
+        }
+        SyntaxTrees.children(node).forEach(child -> report(child, counter));
+    }
+
+    private static boolean testsAnEdge(DetailAST condition, LoopCounter counter) {
+        if (condition == null || condition.getFirstChild() == null
+                || condition.getFirstChild().getType() != TokenTypes.EQUAL) {
+            return false;
+        }
+        List<DetailAST> sides = SyntaxTrees.operands(condition.getFirstChild());
+        if (sides.size() != 2) {
+            return false;
+        }
+        DetailAST other;
+        if (counter.isCounter(sides.get(0))) {
+            other = sides.get(1);
+        } else if (counter.isCounter(sides.get(1))) {
+            other = sides.get(0);
+        } else {
+            return false;
+        }
+        String value = SyntaxTrees.canonical(other);
+        return value.equals(counter.start()) || value.equals(counter.bound()) || endsWithMinusOne(other);
+    }
+
+    private static boolean endsWithMinusOne(DetailAST expression) {
+        if (expression.getType() != TokenTypes.MINUS) {
+            return false;
+        }
+        List<DetailAST> operands = SyntaxTrees.operands(expression);
+        return operands.size() == 2 && operands.get(1).getType() == TokenTypes.NUM_INT
+                && operands.get(1).getText().equals("1");
+    }
+
+    /**
+     * The variable a counting loop steps through, with its starting value and the bound it is
+     * compared with, each in canonical text form.
+     */
+    private record LoopCounter(String name, String start, String bound) {
+
+        static LoopCounter of(DetailAST loop) {
+            DetailAST init = loop.findFirstToken(TokenTypes.FOR_INIT);
+            DetailAST condition = loop.findFirstToken(TokenTypes.FOR_CONDITION);
+            if (init == null || condition == null || condition.getFirstChild() == null) {
+                return null;
+            }
+            DetailAST declaration = init.findFirstToken(TokenTypes.VARIABLE_DEF);
+            if (declaration == null || declaration.findFirstToken(TokenTypes.ASSIGN) == null) {
+                return null;
+            }
+            String name = declaration.findFirstToken(TokenTypes.IDENT).getText();
+            DetailAST startValue = declaration.findFirstToken(TokenTypes.ASSIGN).getFirstChild();
+            DetailAST test = condition.getFirstChild().getFirstChild();
+            if (test == null || !COMPARISONS.contains(test.getType())) {
+                return null;
+            }
+            List<DetailAST> sides = SyntaxTrees.operands(test);
+            if (sides.size() != 2) {
+                return null;
+            }
+            DetailAST bound = isIdent(sides.get(0), name) ? sides.get(1) : sides.get(0);
+            return new LoopCounter(name, SyntaxTrees.canonical(unwrap(startValue)), SyntaxTrees.canonical(bound));
+        }
+
+        boolean isCounter(DetailAST node) {
+            return isIdent(node, name);
+        }
+
+        private static boolean isIdent(DetailAST node, String name) {
+            return node.getType() == TokenTypes.IDENT && node.getText().equals(name);
+        }
+
+        private static DetailAST unwrap(DetailAST expression) {
+            return expression.getType() == TokenTypes.EXPR ? expression.getFirstChild() : expression;
+        }
+    }
+}

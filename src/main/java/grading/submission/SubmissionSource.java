@@ -1,0 +1,46 @@
+package grading.submission;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * One student's submission as it was found in the import folder. Each kind of submission knows how
+ * to open its content for searching and what a correctly arranged copy of it looks like.
+ */
+public abstract sealed class SubmissionSource permits ZipSubmission, FolderSubmission {
+
+    private final Path path;
+
+    protected SubmissionSource(Path path) {
+        this.path = path;
+    }
+
+    /** Chooses the kind of submission from what is on disk. */
+    static SubmissionSource of(Path path, ZipExtractor extractor) {
+        return FileSearch.isZip(path) ? new ZipSubmission(path, extractor) : new FolderSubmission(path);
+    }
+
+    /** The original ZIP or folder, which is never modified. */
+    public Path path() {
+        return path;
+    }
+
+    /**
+     * Returns the folder whose contents can be searched for the student's files. A ZIP is
+     * extracted into the staging folder first; a folder is searched where it is.
+     */
+    public abstract Path open(Path staging, List<SubmissionFinding> findings) throws IOException;
+
+    /** Where a file belongs inside the opened content when the student followed the instructions. */
+    public abstract String expectedLocation(String username, String questionFolder, String fileName);
+
+    /** Reports a top-level folder that does not carry the student's username. */
+    public abstract Optional<SubmissionFinding> checkUsernameFolder(Path content, String username)
+            throws IOException;
+
+    protected static SubmissionFinding wrongUsernameFolder(String message) {
+        return new SubmissionFinding(FindingSeverity.WARNING, "WRONG_USERNAME_FOLDER", message, true);
+    }
+}

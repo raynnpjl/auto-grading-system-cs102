@@ -8,6 +8,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /** Applies marker-confirmed information to normalized copies and revalidates them. */
@@ -47,12 +48,21 @@ public final class SubmissionCorrectionService {
                 "IDENTITY_CONFIRMED",
                 "The marker supplied and confirmed the student identity; all normalized Java headers were updated.",
                 true));
+        // Revalidation sees the already corrected copy, so earlier corrections and the unmodified
+        // sources are carried over from the first import.
+        List<FileCorrection> corrections = new ArrayList<>(existing.corrections());
+        corrections.add(new FileCorrection(existing.username(), identity.username(),
+                "The marker confirmed the student's identity; every Java header now names " + identity.name()
+                        + " <" + identity.email() + ">."));
         return new SubmissionValidationResult(
                 existing.source(),
                 identity.username(),
                 result.normalizedRoot(),
                 result.questionFiles(),
-                findings);
+                findings,
+                new HeaderIdentity(Optional.of(identity.name()), Optional.of(identity.email())),
+                corrections,
+                existing.originalSources());
     }
 
     private void copyTree(Path sourceRoot, Path targetRoot) throws IOException {

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
 import grading.assessment.QuestionFiles;
+import grading.config.GradingSettings;
 import grading.submission.SubmissionPreparationService;
 import grading.submission.SubmissionValidationResult;
 import grading.tester.TesterFileValidationService;
@@ -40,7 +41,8 @@ class JavaGradingServiceTest {
         byte[] originalStudent = Files.readAllBytes(student);
         byte[] originalTester = Files.readAllBytes(tester);
         Path workspace;
-        try (CompilationResult compiled = service.compile(new QuestionFiles(List.of(student), List.of(), List.of()), tester)) {
+        try (CompilationResult compiled = service.compile(new QuestionFiles(List.of(student), List.of(), List.of()),
+                tester)) {
             workspace = compiled.workspace();
             assertTrue(compiled.process().succeeded(), compiled.process().stderr());
             assertTrue(Files.exists(compiled.classesDirectory().resolve("Q1aTester.class")));
@@ -77,7 +79,8 @@ class JavaGradingServiceTest {
                 }
                 """);
 
-        QuestionGradingResult full = service.gradeQuestion(new QuestionFiles(List.of(student), List.of(), List.of()), tester);
+        QuestionGradingResult full = service.gradeQuestion(new QuestionFiles(List.of(student), List.of(), List.of()),
+                tester);
         assertEquals(QuestionGradingResult.Status.GRADED, full.status(), full.message());
         assertEquals(3, full.score());
         assertEquals(3, full.passedTests());
@@ -89,7 +92,8 @@ class JavaGradingServiceTest {
                     public static ArrayList<String> getIsogramWords(ArrayList<String> inputs) { return inputs; }
                 }
                 """);
-        QuestionGradingResult partial = service.gradeQuestion(new QuestionFiles(List.of(student), List.of(), List.of()), tester);
+        QuestionGradingResult partial = service.gradeQuestion(
+                new QuestionFiles(List.of(student), List.of(), List.of()), tester);
         assertEquals(1, partial.score());
         assertEquals(1, partial.passedTests());
         assertEquals(2, partial.failedTests());
@@ -105,12 +109,7 @@ class JavaGradingServiceTest {
                  * Email ID: alice@smu.edu.sg */
                 public class Q1b { broken source }
                 """);
-        Path testersFolder = temporary.resolve("testers");
-        for (String testerFile : AssessmentDefinition.testerFiles()) {
-            String question = testerFile.replace("Tester.java", "");
-            write("testers/" + testerFile, "public class " + question + "Tester extends " + question
-                    + " { public static void main(String[] args) { System.out.println(score()); } }");
-        }
+        Path testersFolder = createTesters();
         // Each student has the same filename but different data. Mutating a run's copy must not leak.
         write("testers/Q2aTester.java", """
                 public class Q2aTester extends Q2a {
@@ -126,7 +125,8 @@ class JavaGradingServiceTest {
         Files.writeString(batch.resolve("bob/Q2/personstester.txt"), "2.5");
         List<SubmissionValidationResult> submissions = new SubmissionPreparationService()
                 .prepareBatch(batch, temporary.resolve("normalized"));
-        assertTrue(submissions.stream().allMatch(SubmissionValidationResult::isReadyForGrading), submissions.toString());
+        assertTrue(submissions.stream().allMatch(SubmissionValidationResult::isReadyForGrading),
+                submissions.toString());
         TesterValidationResult testers = new TesterFileValidationService().validate(testersFolder);
 
         List<StudentGradingResult> results = service.gradeBatch(submissions, testers);
@@ -141,30 +141,108 @@ class JavaGradingServiceTest {
         assertEquals(0, broken.score());
         assertFalse(broken.compilation().stderr().isBlank());
         assertNull(broken.execution());
-        assertTrue(results.getLast().questions().stream().allMatch(q -> q.status() == QuestionGradingResult.Status.GRADED));
-        assertEquals("1.5", Files.readString(submissions.getFirst().questionFiles().get("Q2a").runtimeFiles().getFirst()));
-        assertEquals("2.5", Files.readString(submissions.getLast().questionFiles().get("Q2a").runtimeFiles().getFirst()));
+        assertTrue(results.getLast().questions().stream().allMatch(q
+                -> q.status() == QuestionGradingResult.Status.GRADED));
+        assertEquals("1.5", Files.readString(submissions.getFirst().questionFiles().get("Q2a").runtimeFiles()
+                .getFirst()));
+        assertEquals("2.5", Files.readString(submissions.getLast().questionFiles().get("Q2a").runtimeFiles()
+                .getFirst()));
         assertEquals("1.5", Files.readString(batch.resolve("alice/Q2/personstester.txt")));
 
-        SubmissionValidationResult invalid = new SubmissionValidationResult(batch, "missing", null,
-                java.util.Map.of(), List.of());
-        assertThrows(IllegalArgumentException.class, () -> service.gradeStudent(invalid, testers));
-        TesterValidationResult missingTesters = new TesterValidationResult(testersFolder, java.util.Map.of(), List.of());
-        assertThrows(IllegalArgumentException.class, () -> service.gradeStudent(submissions.getFirst(), missingTesters));
+        TesterValidationResult missingTesters = new TesterValidationResult(testersFolder, java.util.Map.of(),
+                List.of());
+        assertThrows(IllegalArgumentException.class, () -> service.gradeStudent(submissions.getFirst(),
+                missingTesters));
 
+        // A file that disappears after import costs only the question that needs it.
         Files.delete(submissions.getLast().questionFiles().get("Q2b").runtimeFiles().getFirst());
+        List<StudentGradingResult> regraded = service.gradeBatch(submissions, testers);
+        QuestionGradingResult unreadable = regraded.getLast().questions().get(3);
+        assertEquals(QuestionGradingResult.Status.GRADING_ERROR, unreadable.status());
+        assertTrue(unreadable.message().contains("studentstester.txt"), unreadable.message());
+        assertEquals(6, regraded.getFirst().totalScore());
+        assertEquals(10, regraded.getLast().totalScore());
+    }
+
+    @Test
+    void gradesStudentsInParallelButReportsEachAsOneBlockInInputOrder() throws Exception {
+        Path batch = temporary.resolve("batch");
+        List<String> usernames = List.of("amy", "ben", "cat", "dan", "eve", "fay");
+        for (int index = 0; index < usernames.size(); index++) {
+            createSubmission(batch, usernames.get(index), index);
+        }
+        List<SubmissionValidationResult> submissions = new SubmissionPreparationService()
+                .prepareBatch(batch, temporary.resolve("normalized"));
+        TesterValidationResult testers = new TesterFileValidationService().validate(createTesters());
         java.util.ArrayList<String> logs = new java.util.ArrayList<>();
-        IOException missingDependency = assertThrows(IOException.class,
-                () -> new JavaGradingService(logs::add).gradeBatch(submissions, testers));
-        assertTrue(missingDependency.getMessage().contains("studentstester.txt"));
-        assertTrue(logs.isEmpty(), "Preparation failure must be detected before any student is scored.");
+        JavaGradingService parallel = new JavaGradingService(Duration.ofSeconds(30), Duration.ofSeconds(5), 3,
+                logs::add, new BoundedProcessRunner(GradingSettings.current().maxOutputBytes()));
+
+        List<StudentGradingResult> results = parallel.gradeBatch(submissions, testers);
+
+        assertEquals(usernames, results.stream().map(StudentGradingResult::username).toList());
+        for (int index = 0; index < usernames.size(); index++) {
+            assertEquals(5.0 * index, results.get(index).totalScore(), usernames.get(index));
+        }
+        // Between a student's first and last line there is no line from another student.
+        for (String username : usernames) {
+            int start = logs.indexOf("\n=== Student: " + username + " ===");
+            int end = java.util.stream.IntStream.range(0, logs.size())
+                    .filter(line -> logs.get(line).startsWith("[" + username + "] Question scores")).findFirst()
+                            .orElseThrow();
+            assertTrue(logs.subList(start + 1, end).stream().noneMatch(line -> line.startsWith("\n=== Student")),
+                    username + " was interleaved: " + logs.subList(start, end + 1));
+        }
+        assertEquals("[progress] 6 of 6 students graded",
+                logs.stream().filter(line -> line.startsWith("[progress]")).toList().getLast());
+    }
+
+    @Test
+    void missingFilesAndUnconfirmedOwnersDoNotStopTheBatch() throws Exception {
+        Path batch = temporary.resolve("batch");
+        createSubmission(batch, "alice", 1.5);
+        createSubmission(batch, "bob", 2.5);
+        createSubmission(batch, "carol", 1.0);
+        Files.delete(batch.resolve("alice/Q3/Q3.java"));
+        Files.delete(batch.resolve("carol/Q3/Shape.class"));
+        // Bob's headers name someone else, so his identity must be confirmed before grading.
+        Files.writeString(batch.resolve("bob/Q1/Q1a.java"), "/* Name: Eve\n * Email: eve@smu.edu.sg */\n"
+                + "public class Q1a { public static double score() { return 2.5; } }");
+        List<SubmissionValidationResult> submissions = new SubmissionPreparationService()
+                .prepareBatch(batch, temporary.resolve("normalized"));
+        TesterValidationResult testers = new TesterFileValidationService().validate(createTesters());
+        java.util.ArrayList<String> logs = new java.util.ArrayList<>();
+
+        List<StudentGradingResult> results = new JavaGradingService(logs::add).gradeBatch(submissions, testers);
+
+        assertEquals(List.of("alice", "carol"), results.stream().map(StudentGradingResult::username).toList());
+        QuestionGradingResult missing = results.getFirst().questions().getLast();
+        assertEquals(QuestionGradingResult.Status.MISSING_FILES, missing.status());
+        assertEquals(0, missing.score());
+        assertTrue(missing.message().contains("Q3.java"), missing.message());
+        assertEquals(6, results.getFirst().totalScore());
+        QuestionGradingResult missingSupport = results.getLast().questions().getLast();
+        assertEquals(QuestionGradingResult.Status.MISSING_FILES, missingSupport.status());
+        assertTrue(missingSupport.message().contains("Shape.class"), missingSupport.message());
+        assertEquals(4, results.getLast().totalScore());
+        assertTrue(logs.stream().anyMatch(line -> line.contains("Skipped: bob")), logs.toString());
+        SubmissionValidationResult bob = submissions.get(1);
+        assertThrows(IllegalArgumentException.class, () -> service.gradeStudent(bob, testers));
+
+        SubmissionValidationResult empty = new SubmissionValidationResult(batch, "nothing", null,
+                java.util.Map.of(), List.of());
+        StudentGradingResult nothing = service.gradeStudent(empty, testers);
+        assertEquals(0, nothing.totalScore());
+        assertTrue(nothing.questions().stream().allMatch(q
+                -> q.status() == QuestionGradingResult.Status.MISSING_FILES));
     }
 
     @Test
     void reportsTesterCompilationErrorsWithoutRunningAnything() throws Exception {
         Path student = write("Q1a.java", "public class Q1a {}");
         Path tester = write("Q1aTester.java", "public class Q1aTester extends Missing {}");
-        QuestionGradingResult result = service.gradeQuestion(new QuestionFiles(List.of(student), List.of(), List.of()), tester);
+        QuestionGradingResult result = service.gradeQuestion(
+                new QuestionFiles(List.of(student), List.of(), List.of()), tester);
         assertEquals(QuestionGradingResult.Status.COMPILATION_ERROR, result.status());
         assertTrue(result.compilation().stderr().contains("Missing"));
         assertNull(result.execution());
@@ -173,7 +251,8 @@ class JavaGradingServiceTest {
 
     @Test
     void doesNotAwardPrintedScoresWhenTheTesterCrashes() throws Exception {
-        QuestionGradingResult result = runTester("System.out.println(99); throw new AssertionError(\"failure\");", service);
+        QuestionGradingResult result = runTester("System.out.println(99); throw new AssertionError(\"failure\");",
+                service);
         assertEquals(QuestionGradingResult.Status.RUNTIME_ERROR, result.status());
         assertEquals(0, result.score());
         assertTrue(result.execution().stderr().contains("failure"));
@@ -220,7 +299,7 @@ class JavaGradingServiceTest {
     }
 
     @Test
-    void retainsCompletedPassesWhenALaterStudentCallLoops() throws Exception {
+    void skipsEveryTestCaseThatLoopsAndKeepsCompletedPasses() throws Exception {
         Path tester = copySample("Q1aTester.java");
         Path student = write("Q1a.java", """
                 import java.util.*;
@@ -238,11 +317,48 @@ class JavaGradingServiceTest {
         assertEquals(QuestionGradingResult.Status.EXECUTION_TIMEOUT, result.status());
         assertEquals(1, result.score());
         assertEquals(1, result.passedTests());
-        assertEquals(0, result.failedTests());
+        assertEquals(2, result.failedTests());
+        assertTrue(result.message().contains("[2, 3]"), result.message());
         StudentGradingResult totals = new StudentGradingResult("any-student", List.of(result));
         assertEquals(1, totals.totalScore());
         assertEquals(1.0, totals.questionScores().get("Q1"));
         assertEquals(2, runTester("System.out.println(2);", limited).score());
+    }
+
+    @Test
+    void gradesTheTestCasesAfterOneThatLoops() throws Exception {
+        Path tester = copySample("Q1aTester.java");
+        byte[] originalTester = Files.readAllBytes(tester);
+        Path student = write("Q1a.java", """
+                import java.util.*;
+                public class Q1a {
+                    public static ArrayList<String> getIsogramWords(ArrayList<String> inputs) {
+                        if (inputs.contains("ellen")) while (true) {}
+                        ArrayList<String> result = new ArrayList<>();
+                        for (String word : inputs) {
+                            String lower = word.toLowerCase(Locale.ROOT);
+                            if (lower.chars().distinct().count() == lower.length()) result.add(word);
+                        }
+                        return result;
+                    }
+                }
+                """);
+        java.util.ArrayList<String> logs = new java.util.ArrayList<>();
+        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1), logs::add);
+
+        QuestionGradingResult result = limited.gradeQuestion(
+                new QuestionFiles(List.of(student), List.of(), List.of()), tester);
+
+        assertEquals(QuestionGradingResult.Status.EXECUTION_TIMEOUT, result.status());
+        assertEquals(2, result.score(), result.message());
+        assertEquals(2, result.passedTests());
+        assertEquals(1, result.failedTests());
+        assertTrue(result.message().contains("[2]"), result.message());
+        assertTrue(logs.stream().anyMatch(line -> line.contains("Test case 2 did not finish")), logs.toString());
+        TestCaseResult skipped = TestCaseResult.parse(result.execution().stdout(), false).get(1);
+        assertEquals(TestCaseResult.Outcome.TIMED_OUT, skipped.outcome());
+        assertTrue(skipped.description().startsWith("getIsogramWords([ellen"), skipped.description());
+        org.junit.jupiter.api.Assertions.assertArrayEquals(originalTester, Files.readAllBytes(tester));
     }
 
     @Test
@@ -280,8 +396,8 @@ class JavaGradingServiceTest {
                 """, service);
         assertEquals(QuestionGradingResult.Status.OUTPUT_LIMIT_EXCEEDED, result.status(), result.message());
         assertEquals(0, result.score());
-        assertTrue(result.execution().stdout().length() <= BoundedProcessRunner.MAX_OUTPUT_BYTES);
-        assertTrue(result.execution().stderr().length() <= BoundedProcessRunner.MAX_OUTPUT_BYTES);
+        assertTrue(result.execution().stdout().length() <= GradingSettings.current().maxOutputBytes());
+        assertTrue(result.execution().stderr().length() <= GradingSettings.current().maxOutputBytes());
     }
 
     @Test
@@ -299,7 +415,8 @@ class JavaGradingServiceTest {
         write("alice/Q3/Broken.java", "this must not be compiled");
         write("alice/Q3/Q3.class", "stale answer");
         write("alice/Q3/Q3Tester.class", "stale tester");
-        Path tester = write("Q3Tester.java", "public class Q3Tester { public static void main(String[] args) { System.out.println(Q3.score()); } }");
+        Path tester = write("Q3Tester.java",
+                "public class Q3Tester { public static void main(String[] args) { System.out.println(Q3.score()); } }");
         QuestionFiles files = new QuestionFiles(List.of(source, comparator),
                 List.of(student.resolve("Q3/Shape.class"), student.resolve("Q3/Circle.class"),
                         student.resolve("Q3/Rectangle.class")), List.of());
@@ -335,14 +452,16 @@ class JavaGradingServiceTest {
         Path tester = write("Q1aTester.java", """
                 public class Q1aTester {
                     public static void main(String[] args) throws Exception {
-                        java.nio.file.Files.writeString(java.nio.file.Path.of("pid"), "" + ProcessHandle.current().pid());
+                        java.nio.file.Files.writeString(java.nio.file.Path.of("pid"), "" + ProcessHandle.current()
+                                .pid());
                         Thread.sleep(60000);
                     }
                 }
                 """);
         Path workspace;
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        try (CompilationResult compilation = service.compile(new QuestionFiles(List.of(student), List.of(), List.of()), tester)) {
+        try (CompilationResult compilation = service.compile(
+                new QuestionFiles(List.of(student), List.of(), List.of()), tester)) {
             workspace = compilation.workspace();
             Thread worker = Thread.ofPlatform().start(() -> {
                 try {
@@ -354,10 +473,12 @@ class JavaGradingServiceTest {
             try {
                 Path pidFile = workspace.resolve("pid");
                 long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-                while (!Files.exists(pidFile) && worker.isAlive() && System.nanoTime() < deadline) {
+                // The file is created before the pid is written into it, so wait for content too.
+                while (!(Files.exists(pidFile) && Files.size(pidFile) > 0) && worker.isAlive()
+                        && System.nanoTime() < deadline) {
                     Thread.sleep(20);
                 }
-                assertTrue(Files.exists(pidFile));
+                assertTrue(Files.exists(pidFile) && Files.size(pidFile) > 0);
                 long pid = Long.parseLong(Files.readString(pidFile));
                 worker.interrupt();
                 worker.join(5000);
@@ -374,7 +495,8 @@ class JavaGradingServiceTest {
 
     private QuestionGradingResult runTester(String body, JavaGradingService grading) throws Exception {
         Path student = write("Q1a.java", "public class Q1a {}");
-        Path tester = write("Q1aTester.java", "public class Q1aTester extends Q1a { public static void main(String[] args)"
+        Path tester = write("Q1aTester.java",
+                "public class Q1aTester extends Q1a { public static void main(String[] args)"
                 + " throws Exception { " + body + " } }");
         return grading.gradeQuestion(new QuestionFiles(List.of(student), List.of(), List.of()), tester);
     }
@@ -391,6 +513,16 @@ class JavaGradingServiceTest {
         Path file = temporary.resolve(filename);
         Files.createDirectories(file.getParent());
         return Files.writeString(file, content);
+    }
+
+    private Path createTesters() throws IOException {
+        Path testersFolder = temporary.resolve("testers");
+        for (String testerFile : AssessmentDefinition.testerFiles()) {
+            String question = testerFile.replace("Tester.java", "");
+            write("testers/" + testerFile, "public class " + question + "Tester extends " + question
+                    + " { public static void main(String[] args) { System.out.println(score()); } }");
+        }
+        return testersFolder;
     }
 
     private void createSubmission(Path batch, String username, double score) throws IOException {

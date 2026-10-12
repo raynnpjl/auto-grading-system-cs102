@@ -1,5 +1,6 @@
 package grading.submission;
 
+/** How serious a finding is. Only errors can stop a student from being graded. */
 public enum FindingSeverity {
     INFO,
     WARNING,

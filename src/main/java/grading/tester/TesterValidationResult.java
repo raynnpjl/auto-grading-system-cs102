@@ -1,17 +1,19 @@
 package grading.tester;
 
 import grading.assessment.AssessmentDefinition;
-import grading.submission.FindingSeverity;
 import grading.submission.SubmissionFinding;
+import grading.submission.ValidationResult;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
+/** The validated tester folder: the tester found for each question and any problems with them. */
 public record TesterValidationResult(
         Path source,
         Map<String, Path> testerFiles,
-        List<SubmissionFinding> findings) {
+        List<SubmissionFinding> findings) implements ValidationResult {
 
     public TesterValidationResult {
         Objects.requireNonNull(source, "source");
@@ -19,11 +21,7 @@ public record TesterValidationResult(
         findings = List.copyOf(findings);
     }
 
-    public boolean hasErrors() {
-        return findings.stream().anyMatch(finding -> finding.severity() == FindingSeverity.ERROR);
-    }
-
     public boolean isValid() {
-        return !hasErrors() && testerFiles.keySet().equals(java.util.Set.copyOf(AssessmentDefinition.testerFiles()));
+        return !hasErrors() && testerFiles.keySet().equals(Set.copyOf(AssessmentDefinition.testerFiles()));
     }
 }

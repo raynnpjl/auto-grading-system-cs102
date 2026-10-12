@@ -1,0 +1,14 @@
+package grading.submission;
+
+import java.io.IOException;
+import java.util.List;
+
+/** Reports a submission whose top-level folder was not renamed to the student's username. */
+public final class UsernameFolderCheck implements SubmissionCheck {
+
+    @Override
+    public void inspect(SubmissionContext submission, List<SubmissionFinding> findings) throws IOException {
+        submission.source().checkUsernameFolder(submission.content(), submission.username())
+                .ifPresent(findings::add);
+    }
+}

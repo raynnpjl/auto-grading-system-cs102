@@ -2,17 +2,50 @@ package grading.submission;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
+/**
+ * Something found while validating an imported input, shown to the marker with its severity and,
+ * for an unresolved error, the next step to take.
+ *
+ * @param severity  how serious it is
+ * @param code      a stable identifier for the kind of finding, such as MISSING_JAVA_FILE
+ * @param message   what was found
+ * @param corrected whether the application already corrected it in the normalized copy
+ */
 public record SubmissionFinding(
         FindingSeverity severity,
         String code,
         String message,
         boolean corrected) {
 
+    private static final Set<String> IDENTITY_CODES = Set.of(
+            "MISSING_HEADER_EMAIL",
+            "USERNAME_UNKNOWN",
+            "HEADER_IDENTITY_MISMATCH",
+            "CONFLICTING_HEADER_IDENTITIES");
+
     public SubmissionFinding {
         Objects.requireNonNull(severity, "severity");
         Objects.requireNonNull(code, "code");
         Objects.requireNonNull(message, "message");
+    }
+
+    /** An unresolved error about who owns the submission, which the marker must confirm. */
+    public boolean needsIdentityConfirmation() {
+        return isUnresolvedError() && IDENTITY_CODES.contains(code);
+    }
+
+    /**
+     * Only an unconfirmed owner or an unreadable submission holds a student back from grading.
+     * Missing or broken files cost marks only for their own question.
+     */
+    public boolean blocksGrading() {
+        return needsIdentityConfirmation() || (isUnresolvedError() && code.equals("SUBMISSION_UNREADABLE"));
+    }
+
+    private boolean isUnresolvedError() {
+        return severity == FindingSeverity.ERROR && !corrected;
     }
 
     /**
@@ -26,29 +59,33 @@ public record SubmissionFinding(
 
         return Optional.of(switch (code) {
             case "MISSING_DEPENDENCY", "DEPENDENCY_UNREADABLE" ->
-                    "Restore the named support class or test data file from the assessment materials to the "
+                    "The other questions are still graded and the question that needs this file scores 0. Restore "
+                            + "the named support class or test data file from the assessment materials to the "
                             + "stated Q folder, ensure it is readable, then import the submissions again.";
             case "MISSING_JAVA_FILE" ->
-                    "Retrieve the missing source file from the student's submission or request a resubmission, "
-                            + "place it in the stated Q folder, then import the submissions again.";
+                    "The other questions are still graded and this question scores 0. If the file exists "
+                            + "elsewhere, place it in the stated Q folder and import the submissions again.";
             case "MISSING_HEADER_EMAIL" ->
-                    "Select Resolve issues, confirm the student's username, name, and email from the LMS or "
-                            + "class roster, then apply once to update all normalized headers automatically.";
+                    "This student is skipped until resolved. Select Resolve issues, confirm the student's "
+                            + "username, name, and email from the LMS or class roster, then apply once to update "
+                            + "all normalized headers automatically.";
             case "USERNAME_UNKNOWN" ->
-                    "Select Resolve issues and enter the identity shown in the LMS upload record or class roster. "
-                            + "The application will rename the normalized copy and update every header.";
+                    "This student is skipped until resolved. Select Resolve issues and enter the identity shown "
+                            + "in the LMS upload record or class roster. The application will rename the normalized "
+                            + "copy and update every header.";
             case "HEADER_IDENTITY_MISMATCH", "CONFLICTING_HEADER_IDENTITIES" ->
-                    "Compare the ZIP/folder owner against the LMS record, then select Resolve issues and enter the "
-                            + "single verified identity to replace inconsistent normalized headers automatically.";
+                    "This student is skipped until resolved. Compare the ZIP/folder owner against the LMS record, "
+                            + "then select Resolve issues and enter the single verified identity to replace "
+                            + "inconsistent normalized headers automatically.";
             case "HEADER_UNREADABLE" ->
                     "Open the named Java file in an editor, confirm it is genuine source code, save it as UTF-8, "
                             + "and import the submission again.";
             case "JAVA_FILE_TOO_LARGE" ->
-                    "Inspect the file manually before opening or running it. If it is not a normal Java source "
-                            + "file, request a clean resubmission.";
+                    "The file was not run and its question scores 0. Inspect it manually before opening or "
+                            + "running it. If it is not a normal Java source file, request a clean resubmission.";
             case "JAVA_FILE_UNREADABLE" ->
-                    "Restore read access or extract/copy the named source file manually into the correct Q folder, "
-                            + "then import the submission again.";
+                    "Its question scores 0. Restore read access or extract/copy the named source file manually "
+                            + "into the correct Q folder, then import the submission again.";
             case "UNSAFE_ZIP_ENTRY" ->
                     "Do not use the skipped entry. Inspect the original archive separately and request a clean "
                             + "resubmission if the required source was stored in that unsafe path.";

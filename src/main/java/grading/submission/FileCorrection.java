@@ -1,0 +1,12 @@
+package grading.submission;
+
+/**
+ * One change made automatically in the normalized copy of a submission. The original is never
+ * modified.
+ *
+ * @param original  where the item was in the submission, as the student arranged it
+ * @param corrected where it is in the normalized copy
+ * @param change    what was changed, in plain language
+ */
+public record FileCorrection(String original, String corrected, String change) {
+}

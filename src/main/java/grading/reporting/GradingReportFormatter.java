@@ -11,6 +11,11 @@ public final class GradingReportFormatter {
     }
 
     public static String format(List<StudentGradingResult> results) {
+        return format(results, List.of());
+    }
+
+    /** Also lists the students who were not graded because their identity is unconfirmed. */
+    public static String format(List<StudentGradingResult> results, List<String> skippedUsernames) {
         StringBuilder report = new StringBuilder("Grading results\n===============\n");
         for (StudentGradingResult student : results) {
             report.append('\n').append('[').append(student.username()).append("]\n");
@@ -26,6 +31,10 @@ public final class GradingReportFormatter {
                     report.append("    ").append(question.message()).append('\n');
                 }
             }
+        }
+        if (!skippedUsernames.isEmpty()) {
+            report.append("\nNot graded (confirm identity with Resolve issues, then grade again)\n");
+            skippedUsernames.forEach(username -> report.append("  ").append(username).append('\n'));
         }
         return report.toString();
     }

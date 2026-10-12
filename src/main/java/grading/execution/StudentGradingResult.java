@@ -5,6 +5,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * One student's graded questions, in assessment order.
+ *
+ * @param username  the student
+ * @param questions the result of each question part
+ */
 public record StudentGradingResult(String username, List<QuestionGradingResult> questions) {
 
     public StudentGradingResult {

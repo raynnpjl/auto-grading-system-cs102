@@ -1,81 +1,89 @@
 package ui;
 
 import grading.assessment.AssessmentDefinition;
+import grading.common.Messages;
+import grading.config.GradingSettings;
 import grading.execution.JavaGradingService;
 import grading.execution.QuestionGradingResult;
 import grading.execution.StudentGradingResult;
+import grading.reporting.AttemptReportWriter;
+import grading.reporting.GradingAttempt;
 import grading.reporting.GradingReportFormatter;
+import grading.reporting.ReportArchive;
 import grading.reporting.ScoreSheet;
 import grading.reporting.ScoreSheetPreview;
+import grading.reporting.ScoreSheetReportFormatter;
 import grading.reporting.ScoreSheetUpdater;
+import grading.reporting.ValidationReportFormatter;
+import grading.scoring.ScoreBreakdown;
 import grading.scoring.ScoreSummary;
-import grading.submission.SubmissionFinding;
+import grading.style.StyleChecker;
+import grading.submission.IdentitySuggestions;
+import grading.submission.StudentIdentity;
 import grading.submission.SubmissionCorrectionService;
+import grading.submission.SubmissionFinding;
 import grading.submission.SubmissionPreparationService;
 import grading.submission.SubmissionValidationResult;
-import grading.submission.StudentIdentity;
+import grading.submission.SubmissionWorkspaces;
 import grading.tester.TesterFileValidationService;
 import grading.tester.TesterValidationResult;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
-import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
-import javafx.geometry.Insets;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonBar;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.Dialog;
-import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
-import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
-import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 
+/**
+ * Handles the main window's actions: importing testers, submissions and the score sheet, running
+ * grading in the background, and showing what was found. The work itself is done by the grading
+ * services, and the reports are formatted by the reporting classes.
+ */
 public final class MainViewController {
 
-    private final SubmissionPreparationService submissionService = new SubmissionPreparationService();
+    private final GradingSettings settings = GradingSettings.current();
+    private final SubmissionPreparationService submissionService = new SubmissionPreparationService(settings);
     private final SubmissionCorrectionService correctionService =
             new SubmissionCorrectionService(submissionService);
-    private final TesterFileValidationService testerService = new TesterFileValidationService();
-    private static final Set<String> IDENTITY_ERROR_CODES = Set.of(
-            "MISSING_HEADER_EMAIL",
-            "USERNAME_UNKNOWN",
-            "HEADER_IDENTITY_MISMATCH",
-            "CONFLICTING_HEADER_IDENTITIES");
+    private final TesterFileValidationService testerService = new TesterFileValidationService(settings);
+    private final IdentityDialog identityDialog = new IdentityDialog(IdentitySuggestions.fromSettings());
+    private final GradingLog gradingLog = new GradingLog(settings.maxLogCharacters());
+    private final SubmissionWorkspaces workspaces = SubmissionWorkspaces.fromSettings();
+    private volatile boolean closing;
+    private Path reportsFolder = settings.reportsFolder();
+    // The latest grading attempt's report folder and id, kept until the next grading run.
+    private Path latestReports;
+    private String latestAttemptId;
     private String testerReport = "";
     private String submissionReport = "";
     private String gradingReport = "";
-    private final StringBuilder gradingLog = new StringBuilder();
-    private boolean gradingLogTruncated;
-    private static final int MAX_LOG_CHARACTERS = 100_000;
-    private static final ButtonType SCORE_SHEET_WRITE =
-            new ButtonType("Write scores", ButtonBar.ButtonData.OK_DONE);
     private TesterValidationResult latestTesterResult;
-    private Task<List<StudentGradingResult>> gradingTask;
+    private Task<GradingRun> gradingTask;
     private boolean inputTaskRunning;
     private List<SubmissionValidationResult> latestSubmissionResults = List.of();
     private Path latestSubmissionWorkspace;
+    private Path latestSubmissionSource;
     private boolean identityPromptOffered;
+    private boolean identityPromptEnabled = true;
     private boolean testerImported;
     private boolean submissionsImported;
     private long readySubmissionCount;
@@ -83,6 +91,8 @@ public final class MainViewController {
     private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
     private ScoreSummary latestScores;
     private ScoreSheet scoreSheet;
+    // Why the last score sheet import failed; kept on screen until a sheet is imported.
+    private String scoreSheetProblem;
     private String scoreSheetReport = "";
 
     @FXML
@@ -134,6 +144,15 @@ public final class MainViewController {
     private Button writeScoresButton;
 
     @FXML
+    private Button saveReportsButton;
+
+    @FXML
+    private void initialize() {
+        // Removes normalized copies left behind by sessions that have closed or crashed.
+        startWorker(workspaces::removeAbandoned, "workspace-cleanup", true);
+    }
+
+    @FXML
     private void importTesterFiles() {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Select Tester-Files folder");
@@ -172,7 +191,7 @@ public final class MainViewController {
             testerImported = true;
             testerReport = "Tester-file validation failed\n"
                     + "=============================\n"
-                    + safeMessage(task.getException())
+                    + Messages.describe(task.getException())
                     + "\n  Next step for marker: Confirm that the selected folder is readable and contains "
                     + "the official tester sources, then import it again.\n";
             refreshReports();
@@ -181,9 +200,7 @@ public final class MainViewController {
             updateReadiness();
         });
 
-        Thread worker = new Thread(task, "tester-file-validator");
-        worker.setDaemon(true);
-        worker.start();
+        startWorker(task, "tester-file-validator", true);
     }
 
     @FXML
@@ -204,13 +221,11 @@ public final class MainViewController {
         }
         inputTaskRunning = true;
         latestSubmissionResults = List.of();
+        Path previousWorkspace = latestSubmissionWorkspace;
         latestSubmissionWorkspace = null;
         clearGradingReport();
-        Path workspace = Path.of(
-                System.getProperty("java.io.tmpdir"),
-                "cs102-auto-grading",
-                "normalized-" + UUID.randomUUID());
         submissionFolderField.setText(source.toAbsolutePath().toString());
+        latestSubmissionSource = source.toAbsolutePath();
         identityPromptOffered = false;
         readySubmissionCount = 0;
         totalSubmissionCount = 0;
@@ -219,16 +234,23 @@ public final class MainViewController {
         statusText.setText("Validating submissions");
         consoleStatus.setText("Validation in progress");
 
-        Task<List<SubmissionValidationResult>> task = new Task<>() {
+        Task<ImportedSubmissions> task = new Task<>() {
             @Override
-            protected List<SubmissionValidationResult> call() throws IOException {
-                return submissionService.prepareBatch(source, workspace);
+            protected ImportedSubmissions call() throws IOException {
+                // The previous import's copies are replaced, so they are no longer needed.
+                workspaces.delete(previousWorkspace);
+                Path workspace = workspaces.create();
+                try {
+                    return new ImportedSubmissions(submissionService.prepareBatch(source, workspace), workspace);
+                } catch (IOException | RuntimeException failure) {
+                    workspaces.delete(workspace);
+                    throw failure;
+                }
             }
         };
         task.setOnSucceeded(event -> {
             inputTaskRunning = false;
-            List<SubmissionValidationResult> results = task.getValue();
-            showResults(results, workspace);
+            showResults(task.getValue().results(), task.getValue().workspace());
         });
         task.setOnFailed(event -> {
             inputTaskRunning = false;
@@ -236,7 +258,7 @@ public final class MainViewController {
             submissionsImported = true;
             submissionReport = "Submission validation failed\n"
                     + "============================\n"
-                    + safeMessage(failure)
+                    + Messages.describe(failure)
                     + "\n  Next step for marker: Confirm that the selected folder is readable, repair or "
                     + "re-extract it if necessary, then import it again.\n\n"
                     + "No source files were changed.\n";
@@ -246,9 +268,7 @@ public final class MainViewController {
             updateReadiness();
         });
 
-        Thread worker = new Thread(task, "submission-validator");
-        worker.setDaemon(true);
-        worker.start();
+        startWorker(task, "submission-validator", true);
     }
 
     @FXML
@@ -257,44 +277,67 @@ public final class MainViewController {
             return;
         }
         List<SubmissionValidationResult> submissions = List.copyOf(latestSubmissionResults);
+        List<String> skipped = submissions.stream()
+                .filter(Predicate.not(SubmissionValidationResult::isReadyForGrading))
+                .map(SubmissionValidationResult::username)
+                .toList();
+        int gradable = submissions.size() - skipped.size();
         TesterValidationResult testers = latestTesterResult;
+        Path workspace = latestSubmissionWorkspace;
+        Path submissionsFolder = latestSubmissionSource;
+        Path reportsFolder = this.reportsFolder;
+        latestReports = null;
         clearGradingReport();
         gradingTask = new Task<>() {
             @Override
-            protected List<StudentGradingResult> call() throws IOException, InterruptedException {
-                JavaGradingService grader = new JavaGradingService(message -> {
+            protected GradingRun call() throws IOException, InterruptedException {
+                Consumer<String> log = message -> {
                     System.out.println(message);
                     Platform.runLater(() -> {
                         if (gradingTask == this) {
                             appendGradingLog(message);
                         }
                     });
-                });
-                return grader.gradeBatch(submissions, testers);
+                };
+                LocalDateTime started = LocalDateTime.now();
+                List<StudentGradingResult> results = new JavaGradingService(log).gradeBatch(submissions, testers);
+                log.accept("Checking style against the CS102 Java Coding Style guide.");
+                GradingAttempt attempt = GradingAttempt.assemble(started, testers.source(), submissionsFolder,
+                        settings, submissions, results, new StyleChecker(settings.style()));
+                log.accept("Writing the reports for this attempt.");
+                return new GradingRun(results, attempt, new AttemptReportWriter(reportsFolder).write(attempt));
             }
         };
-        Task<List<StudentGradingResult>> task = gradingTask;
+        Task<GradingRun> task = gradingTask;
         task.setOnSucceeded(event -> {
             gradingTask = null;
             updateReadiness();
-            List<StudentGradingResult> results = task.getValue();
+            GradingRun run = task.getValue();
+            List<StudentGradingResult> results = run.results();
             long failedParts = results.stream().flatMap(student -> student.questions().stream())
                     .filter(question -> question.status() != QuestionGradingResult.Status.GRADED).count();
-            latestScores = ScoreSummary.from(results);
-            gradingReport = GradingReportFormatter.format(results)
-                    + "\nProcess log\n===========\n" + displayedGradingLog() + "\n";
+            latestReports = run.reports().folder().orElse(null);
+            latestAttemptId = run.reports().attemptId();
+            latestScores = new ScoreSummary(run.attempt().scores().stream()
+                    .map(ScoreBreakdown::toStudentScore)
+                    .toList());
+            gradingReport = GradingReportFormatter.format(results, skipped) + reportLocation(run.reports())
+                    + "\nProcess log\n===========\n" + gradingLog.text() + "\n";
             scoreSheetReport = scoreSheetStatus();
             updateWriteScoresButton();
             refreshReports();
-            statusText.setText(failedParts == 0 ? "Grading complete" : "Grading complete — review errors");
-            consoleStatus.setText("Students graded: " + results.size() + " | Parts with errors: " + failedParts);
-            System.out.println("Grading complete: " + results.size() + " students, " + failedParts + " parts with errors.");
+            boolean clean = failedParts == 0 && skipped.isEmpty();
+            statusText.setText(clean ? "Grading complete" : "Grading complete — review errors");
+            consoleStatus.setText("Students graded: " + results.size() + " | Skipped: " + skipped.size()
+                    + " | Parts with errors: " + failedParts);
+            System.out.println("Grading complete: " + results.size() + " students, " + skipped.size()
+                    + " skipped, " + failedParts + " parts with errors.");
         });
         task.setOnFailed(event -> {
             gradingTask = null;
             updateReadiness();
-            String message = "Grading failed: " + safeMessage(task.getException());
-            gradingReport = message + "\n\n" + displayedGradingLog() + "\n";
+            String message = "Grading failed: " + Messages.describe(task.getException());
+            gradingReport = message + "\n\n" + gradingLog.text() + "\n";
             refreshReports();
             statusText.setText("Grading failed");
             consoleStatus.setText("Review the process log, then retry");
@@ -307,25 +350,58 @@ public final class MainViewController {
         });
         updateReadiness();
         statusText.setText("Grading in progress");
-        consoleStatus.setText("Grading " + submissions.size() + " students");
-        appendGradingLog("Starting grading for " + submissions.size() + " students.");
-        System.out.println("Starting grading for " + submissions.size() + " students.");
-        // Keep the worker alive on application exit until interrupted process cleanup has finished.
-        Thread worker = new Thread(task, "grading-runner");
-        worker.setDaemon(false);
-        worker.start();
+        consoleStatus.setText("Grading " + gradable + " students");
+        String start = "Starting grading for " + gradable + " students"
+                + (skipped.isEmpty() ? "." : "; skipping " + skipped.size() + " with unconfirmed identity.");
+        appendGradingLog(start);
+        System.out.println(start);
+        // Keep the worker alive on application exit until interrupted process cleanup has finished,
+        // then remove the normalized copies it was grading.
+        startWorker(() -> {
+            try {
+                task.run();
+            } finally {
+                if (closing) {
+                    workspaces.delete(workspace);
+                }
+            }
+        }, "grading-runner", false);
     }
 
+    private static String reportLocation(AttemptReportWriter.Written reports) {
+        StringBuilder text = new StringBuilder("\nReports\n=======\n");
+        reports.folder().ifPresentOrElse(
+                folder -> text.append("Attempt ").append(reports.attemptId()).append(": ")
+                        .append(AttemptReportWriter.summaryOf(folder).toAbsolutePath()).append('\n'),
+                () -> text.append("The reports could not be written.\n"));
+        reports.problems().forEach(problem -> text.append("  ").append(problem).append('\n'));
+        return text.toString();
+    }
+
+    /** Writes attempt reports into another folder instead of the configured one. */
+    void useReportsFolder(Path folder) {
+        reportsFolder = folder;
+    }
+
+    /** Stops the identity dialog from opening by itself; the Resolve issues button still opens it. */
+    void disableAutomaticIdentityPrompt() {
+        identityPromptEnabled = false;
+    }
+
+    /** Stops grading and removes this session's normalized copies; called when the window closes. */
     void shutdown() {
+        closing = true;
         if (gradingTask != null) {
+            // the grading worker removes the copies once its processes have been terminated
             gradingTask.cancel(true);
+        } else {
+            workspaces.delete(latestSubmissionWorkspace);
         }
     }
 
     private void clearGradingReport() {
         gradingReport = "";
-        gradingLog.setLength(0);
-        gradingLogTruncated = false;
+        gradingLog.clear();
         latestScores = null;
         scoreSheetReport = scoreSheetStatus();
         updateWriteScoresButton();
@@ -333,18 +409,15 @@ public final class MainViewController {
     }
 
     private void appendGradingLog(String message) {
-        gradingLog.append(message).append('\n');
-        if (gradingLog.length() > MAX_LOG_CHARACTERS) {
-            gradingLog.delete(0, gradingLog.length() - MAX_LOG_CHARACTERS);
-            gradingLogTruncated = true;
-        }
-        findingsConsole.setText(displayedGradingLog());
+        gradingLog.append(message);
+        findingsConsole.setText(gradingLog.text());
         findingsConsole.positionCaret(findingsConsole.getLength());
     }
 
-    private String displayedGradingLog() {
-        return (gradingLogTruncated ? "[Earlier process output omitted from this view; see terminal.]\n" : "")
-                + gradingLog;
+    private static void startWorker(Runnable work, String name, boolean daemon) {
+        Thread worker = new Thread(work, name);
+        worker.setDaemon(daemon);
+        worker.start();
     }
 
     @FXML
@@ -363,13 +436,13 @@ public final class MainViewController {
     void importScoreSheet(Path source) {
         try {
             scoreSheet = ScoreSheet.load(source);
+            scoreSheetProblem = null;
             scoreSheetReport = scoreSheetStatus();
             consoleStatus.setText("Score sheet imported: " + scoreSheet.rowCount() + " students");
         } catch (IOException exception) {
             scoreSheet = null;
-            scoreSheetReport = "Score sheet not imported\n"
-                    + "========================\n"
-                    + safeMessage(exception) + "\n\n";
+            scoreSheetProblem = ScoreSheetReportFormatter.importFailed(exception);
+            scoreSheetReport = scoreSheetStatus();
             consoleStatus.setText("Score sheet not imported");
         }
         updateWriteScoresButton();
@@ -378,7 +451,8 @@ public final class MainViewController {
 
     @FXML
     private void writeScoresToSheet() {
-        writeScoresToSheet(this::confirmScoreSheetWrite);
+        writeScoresToSheet(preview ->
+                ScoreSheetConfirmation.confirm(preview, writeScoresButton.getScene().getWindow()));
     }
 
     void writeScoresToSheet(Predicate<ScoreSheetPreview> confirmation) {
@@ -387,9 +461,7 @@ public final class MainViewController {
         }
         ScoreSheetPreview preview = scoreSheetUpdater.preview(scoreSheet, latestScores);
         if (preview.entries().isEmpty()) {
-            scoreSheetReport = "Scores not written\n==================\n"
-                    + "No graded student matches a username in the imported score sheet. "
-                    + "Check that the correct sheet was imported.\n\n" + preview.describe() + "\n";
+            scoreSheetReport = ScoreSheetReportFormatter.noMatchingStudents(preview);
             refreshReports();
             return;
         }
@@ -399,14 +471,11 @@ public final class MainViewController {
         try {
             ScoreSheetUpdater.Result result = scoreSheetUpdater.write(preview);
             scoreSheet = result.updatedSheet();
-            scoreSheetReport = "Scores written to score sheet\n"
-                    + "=============================\n"
-                    + preview.describe()
-                    + "Backup of the previous file: " + result.backup() + "\n\n";
+            scoreSheetReport = ScoreSheetReportFormatter.written(preview, result);
             statusText.setText("Scores written to score sheet");
             consoleStatus.setText(result.scoresWritten() + " scores written to " + result.sheet().getFileName());
         } catch (IOException exception) {
-            scoreSheetReport = "Scores not written\n==================\n" + safeMessage(exception) + "\n\n";
+            scoreSheetReport = ScoreSheetReportFormatter.writeFailed(exception);
             statusText.setText("Score sheet not updated");
             consoleStatus.setText("Score sheet not updated");
         }
@@ -414,49 +483,80 @@ public final class MainViewController {
         refreshReports();
     }
 
-    private boolean confirmScoreSheetWrite(ScoreSheetPreview preview) {
-        Alert alert = scoreSheetConfirmation(preview);
-        alert.initOwner(writeScoresButton.getScene().getWindow());
-        return alert.showAndWait().filter(SCORE_SHEET_WRITE::equals).isPresent();
-    }
-
     Alert scoreSheetConfirmation(ScoreSheetPreview preview) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "", SCORE_SHEET_WRITE, ButtonType.CANCEL);
-        alert.setTitle("Write scores to score sheet");
-        alert.setHeaderText("Write " + preview.entries().size() + " scores into "
-                + preview.sheet().path().getFileName() + "?\nA backup of the current file is saved first.");
-        TextArea details = new TextArea(preview.describe());
-        details.setEditable(false);
-        details.setWrapText(true);
-        details.setPrefRowCount(12);
-        DialogPane pane = alert.getDialogPane();
-        pane.setContent(details);
-        // dialogs open in their own window, so they need the application's stylesheet explicitly
-        pane.getStylesheets().add(getClass().getResource("/ui/styles.css").toExternalForm());
-        pane.lookupButton(SCORE_SHEET_WRITE).getStyleClass().add("dialog-primary-button");
-        pane.lookupButton(ButtonType.CANCEL).getStyleClass().add("dialog-secondary-button");
-        return alert;
+        return ScoreSheetConfirmation.create(preview);
     }
 
     private String scoreSheetStatus() {
-        if (scoreSheet == null) {
-            return "";
+        if (scoreSheet == null && scoreSheetProblem != null) {
+            return scoreSheetProblem;
         }
-        String nextStep = latestScores == null
-                ? "Run grading, then select Write scores to fill it."
-                : "Select Write scores to fill it with this run's totals.";
-        return "Score sheet: " + scoreSheet.path() + " (" + scoreSheet.rowCount() + " students). "
-                + nextStep + "\n\n";
+        return ScoreSheetReportFormatter.status(scoreSheet, latestScores != null);
     }
 
     private void updateWriteScoresButton() {
         writeScoresButton.setDisable(isBusy() || latestScores == null || scoreSheet == null);
+        saveReportsButton.setDisable(isBusy() || latestReports == null);
+    }
+
+    @FXML
+    private void saveReports() {
+        if (latestReports == null) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save the grading reports");
+        chooser.setInitialFileName("grading-reports-" + latestAttemptId + ".zip");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP files", "*.zip"));
+        File selected = chooser.showSaveDialog(saveReportsButton.getScene().getWindow());
+        if (selected != null) {
+            saveReports(selected.toPath());
+        }
+    }
+
+    /** Saves the latest attempt's reports as a ZIP file, in the background. */
+    void saveReports(Path zipFile) {
+        if (isBusy() || latestReports == null) {
+            return;
+        }
+        Path reports = latestReports;
+        inputTaskRunning = true;
+        updateReadiness();
+        updateWriteScoresButton();
+        consoleStatus.setText("Saving the reports");
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() throws IOException {
+                ReportArchive.save(reports, zipFile);
+                return null;
+            }
+        };
+        task.setOnSucceeded(event -> {
+            inputTaskRunning = false;
+            updateReadiness();
+            updateWriteScoresButton();
+            statusText.setText("Reports saved");
+            consoleStatus.setText("Reports saved to " + zipFile.getFileName());
+            scoreSheetReport = "Reports saved\n=============\n" + zipFile.toAbsolutePath() + "\n\n"
+                    + scoreSheetStatus();
+            refreshReports();
+        });
+        task.setOnFailed(event -> {
+            inputTaskRunning = false;
+            updateReadiness();
+            updateWriteScoresButton();
+            statusText.setText("Reports not saved");
+            consoleStatus.setText("Reports not saved");
+            scoreSheetReport = "Reports not saved\n=================\n" + Messages.describe(task.getException())
+                    + "\n\n" + scoreSheetStatus();
+            refreshReports();
+        });
+        startWorker(task, "report-archive", true);
     }
 
     private void showResults(List<SubmissionValidationResult> results, Path workspace) {
         long ready = results.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
-        long errors = results.stream().filter(SubmissionValidationResult::hasErrors).count();
-        long corrections = results.stream().mapToLong(SubmissionValidationResult::correctedCount).sum();
+        long skipped = results.size() - ready;
         submissionsImported = true;
         readySubmissionCount = ready;
         totalSubmissionCount = results.size();
@@ -478,41 +578,13 @@ public final class MainViewController {
         submissionEmptyState.setVisible(results.isEmpty());
         submissionEmptyState.setManaged(results.isEmpty());
 
-        StringBuilder report = new StringBuilder();
-        report.append("Submission validation complete\n")
-                .append("==============================\n")
-                .append("Processed: ").append(results.size()).append('\n')
-                .append("Ready: ").append(ready).append('\n')
-                .append("Needs attention: ").append(errors).append('\n')
-                .append("Automatic corrections: ").append(corrections).append('\n')
-                .append("Normalized workspace: ").append(workspace.toAbsolutePath()).append("\n\n");
-        if (errors > 0) {
-            report.append("MARKER ACTION REQUIRED\n")
-                    .append("Follow the Next step shown under each ERROR, then import the corrected copy again.\n\n");
-        }
-
-        for (SubmissionValidationResult result : results) {
-            report.append('[').append(result.username()).append("] ")
-                    .append(result.isReadyForGrading() ? "READY" : "NEEDS ATTENTION")
-                    .append("\nSource: ").append(result.source()).append('\n');
-            if (result.findings().isEmpty()) {
-                report.append("  OK - structure, required files, and headers are valid.\n");
-            } else {
-                for (SubmissionFinding finding : result.findings()) {
-                    appendFinding(report, finding);
-                }
-            }
-            report.append('\n');
-        }
-
-        submissionReport = report.toString();
+        submissionReport = ValidationReportFormatter.submissions(results, workspace);
         refreshReports();
-        statusText.setText(errors == 0 ? "Submissions ready" : "Review required");
-        consoleStatus.setText(String.format(
-                Locale.ROOT, "%d ready, %d need attention", ready, errors));
+        statusText.setText(skipped == 0 ? "Submissions ready" : "Review required");
+        consoleStatus.setText(String.format(Locale.ROOT, "%d ready, %d need attention", ready, skipped));
         updateReadiness();
         updateResolveIssuesButton();
-        if (resolveIssuesButton.isVisible() && !identityPromptOffered) {
+        if (identityPromptEnabled && resolveIssuesButton.isVisible() && !identityPromptOffered) {
             identityPromptOffered = true;
             Platform.runLater(this::resolveSubmissionIssues);
         }
@@ -531,76 +603,8 @@ public final class MainViewController {
             updateResolveIssuesButton();
             return;
         }
-
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.initOwner(resolveIssuesButton.getScene().getWindow());
-        dialog.setTitle("Resolve student identity issues");
-        dialog.setHeaderText("Complete all verified student details once; the application will update every "
-                + "normalized Java header and validate the submissions again.");
-
-        ButtonType applyButton = new ButtonType("Apply and revalidate", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(applyButton, ButtonType.CANCEL);
-        dialog.getDialogPane().setPrefWidth(940);
-
-        GridPane grid = new GridPane();
-        grid.setHgap(12);
-        grid.setVgap(10);
-        grid.setPadding(new Insets(4));
-        grid.addRow(0,
-                new Label("Submission"),
-                new Label("Verified username"),
-                new Label("Student name"),
-                new Label("Student email"));
-
-        Map<SubmissionValidationResult, IdentityFields> fields = new LinkedHashMap<>();
-        int row = 1;
-        for (SubmissionValidationResult result : affected) {
-            TextField username = new TextField(suggestedUsername(result));
-            username.setPromptText("e.g. jane.tan.2026");
-            TextField name = new TextField(suggestedName(result.username()));
-            name.setPromptText("Full name");
-            TextField email = new TextField(suggestedEmail(result));
-            email.setPromptText("username@school.edu");
-            grid.addRow(row++, new Label(result.source().getFileName().toString()), username, name, email);
-            fields.put(result, new IdentityFields(username, name, email));
-        }
-
-        ScrollPane scrollPane = new ScrollPane(grid);
-        scrollPane.setFitToWidth(true);
-        scrollPane.setPrefViewportHeight(Math.min(430, 72 + affected.size() * 48));
-        Label validationMessage = new Label();
-        validationMessage.setWrapText(true);
-        validationMessage.setStyle("-fx-text-fill: #b42318; -fx-font-weight: bold;");
-        Label safetyNote = new Label(
-                "Original submissions will not be changed. Only normalized working copies are updated.");
-        safetyNote.setWrapText(true);
-        VBox content = new VBox(10, safetyNote, scrollPane, validationMessage);
-        content.setPadding(new Insets(4));
-        dialog.getDialogPane().setContent(content);
-
-        Map<SubmissionValidationResult, StudentIdentity> confirmed = new LinkedHashMap<>();
-        Button apply = (Button) dialog.getDialogPane().lookupButton(applyButton);
-        apply.addEventFilter(ActionEvent.ACTION, event -> {
-            confirmed.clear();
-            try {
-                for (Map.Entry<SubmissionValidationResult, IdentityFields> entry : fields.entrySet()) {
-                    IdentityFields values = entry.getValue();
-                    confirmed.put(entry.getKey(), new StudentIdentity(
-                            values.username().getText(),
-                            values.name().getText(),
-                            values.email().getText()));
-                }
-                validationMessage.setText("");
-            } catch (IllegalArgumentException exception) {
-                validationMessage.setText(exception.getMessage());
-                event.consume();
-            }
-        });
-
-        Optional<ButtonType> selected = dialog.showAndWait();
-        if (selected.filter(applyButton::equals).isPresent()) {
-            applyConfirmedIdentities(confirmed);
-        }
+        identityDialog.show(resolveIssuesButton.getScene().getWindow(), affected)
+                .ifPresent(this::applyConfirmedIdentities);
     }
 
     private void applyConfirmedIdentities(
@@ -642,16 +646,14 @@ public final class MainViewController {
             inputTaskRunning = false;
             updateReadiness();
             submissionReport += "\nGuided correction could not be completed: "
-                    + safeMessage(task.getException())
+                    + Messages.describe(task.getException())
                     + "\nNext step for marker: Review the entered identity values and try Resolve issues again.\n";
             refreshReports();
             statusText.setText("Correction failed");
             consoleStatus.setText("Verified details were not applied");
         });
 
-        Thread worker = new Thread(task, "submission-identity-correction");
-        worker.setDaemon(true);
-        worker.start();
+        startWorker(task, "submission-identity-correction", true);
     }
 
     private void showTesterResult(TesterValidationResult result) {
@@ -669,18 +671,7 @@ public final class MainViewController {
         testerEmptyState.setVisible(false);
         testerEmptyState.setManaged(false);
 
-        StringBuilder report = new StringBuilder();
-        report.append("Tester-file validation complete\n")
-                .append("===============================\n")
-                .append("Folder: ").append(result.source().toAbsolutePath()).append('\n')
-                .append("Required files found: ").append(result.testerFiles().size())
-                .append('/').append(AssessmentDefinition.testerFiles().size()).append("\n\n");
-        if (result.hasErrors()) {
-            report.append("MARKER ACTION REQUIRED\n")
-                    .append("Follow the Next step shown under each ERROR, then import Tester-Files again.\n\n");
-        }
-        appendFindings(report, result.findings());
-        testerReport = report.toString();
+        testerReport = ValidationReportFormatter.testers(result);
         refreshReports();
         statusText.setText(result.isValid() ? "Tester files ready" : "Review required");
         consoleStatus.setText(result.isValid() ? "Tester files valid" : "Tester files need attention");
@@ -689,7 +680,7 @@ public final class MainViewController {
 
     private void addNormalizedTree(TreeItem<String> student, Path normalizedRoot) {
         try {
-            for (String question : List.of("Q1", "Q2", "Q3")) {
+            for (String question : AssessmentDefinition.questionFolders()) {
                 Path questionPath = normalizedRoot.resolve(question);
                 if (!Files.isDirectory(questionPath)) {
                     continue;
@@ -707,29 +698,13 @@ public final class MainViewController {
     }
 
     private String statusSuffix(SubmissionValidationResult result) {
-        if (result.isReadyForGrading()) {
-            return result.correctedCount() > 0 ? " - ready (corrected)" : " - ready";
+        if (!result.isReadyForGrading()) {
+            return " - needs attention";
         }
-        return " - needs attention";
-    }
-
-    private void appendFindings(StringBuilder report, List<SubmissionFinding> findings) {
-        for (SubmissionFinding finding : findings) {
-            appendFinding(report, finding);
+        if (!result.missingQuestions().isEmpty()) {
+            return " - ready, missing " + String.join(", ", result.missingQuestions());
         }
-    }
-
-    private void appendFinding(StringBuilder report, SubmissionFinding finding) {
-        report.append("  ")
-                .append(finding.severity())
-                .append(finding.corrected() ? " (corrected)" : "")
-                .append(" - ")
-                .append(finding.message())
-                .append('\n');
-        finding.nextStep().ifPresent(nextStep -> report
-                .append("    Next step for marker: ")
-                .append(nextStep)
-                .append('\n'));
+        return result.correctedCount() > 0 ? " - ready (corrected)" : " - ready";
     }
 
     private void refreshReports() {
@@ -749,10 +724,13 @@ public final class MainViewController {
         } else if (inputTaskRunning) {
             runReadinessText.setText("Validating inputs. Please wait.");
         } else if (testerImported && submissionsImported) {
-            if (inputsReady()) {
-                runReadinessText.setText("Both folders are validated and ready.");
-            } else {
+            if (!inputsReady()) {
                 runReadinessText.setText("Resolve the reported validation errors before grading.");
+            } else if (readySubmissionCount < totalSubmissionCount) {
+                runReadinessText.setText(formatSubmissionReadiness(readySubmissionCount, totalSubmissionCount)
+                        + ". The others are skipped until their identity is confirmed.");
+            } else {
+                runReadinessText.setText("Both folders are validated and ready.");
             }
         } else if (testerImported) {
             runReadinessText.setText("Import student submissions to complete input validation.");
@@ -773,8 +751,7 @@ public final class MainViewController {
 
     private boolean inputsReady() {
         return latestTesterResult != null && latestTesterResult.isValid()
-                && !latestSubmissionResults.isEmpty()
-                && latestSubmissionResults.stream().allMatch(SubmissionValidationResult::isReadyForGrading);
+                && latestSubmissionResults.stream().anyMatch(SubmissionValidationResult::isReadyForGrading);
     }
 
     static String formatSubmissionReadiness(long ready, long total) {
@@ -788,42 +765,13 @@ public final class MainViewController {
     }
 
     private boolean needsIdentityInput(SubmissionValidationResult result) {
-        return result.findings().stream()
-                .anyMatch(finding -> finding.severity() == grading.submission.FindingSeverity.ERROR
-                        && IDENTITY_ERROR_CODES.contains(finding.code()));
+        return result.findings().stream().anyMatch(SubmissionFinding::needsIdentityConfirmation);
     }
 
-    private String suggestedUsername(SubmissionValidationResult result) {
-        return result.username().startsWith("unknown-") ? "" : result.username();
+    private record ImportedSubmissions(List<SubmissionValidationResult> results, Path workspace) {
     }
 
-    private String suggestedName(String username) {
-        if (username == null || username.startsWith("unknown-")) {
-            return "";
-        }
-        String cleaned = username.replaceFirst("[._-](?:19|20)\\d{2}$", "");
-        List<String> words = new ArrayList<>();
-        for (String part : cleaned.split("[._-]+")) {
-            if (!part.isBlank()) {
-                words.add(Character.toUpperCase(part.charAt(0)) + part.substring(1));
-            }
-        }
-        return String.join(" ", words);
-    }
-
-    private String suggestedEmail(SubmissionValidationResult result) {
-        String username = suggestedUsername(result);
-        return username.isBlank() ? "" : username.toLowerCase(Locale.ROOT) + "@smu.edu.sg";
-    }
-
-    private String safeMessage(Throwable failure) {
-        if (failure == null) {
-            return "Unknown validation error";
-        }
-        String message = failure.getMessage();
-        return message == null || message.isBlank() ? failure.getClass().getSimpleName() : message;
-    }
-
-    private record IdentityFields(TextField username, TextField name, TextField email) {
+    private record GradingRun(List<StudentGradingResult> results, GradingAttempt attempt,
+            AttemptReportWriter.Written reports) {
     }
 }

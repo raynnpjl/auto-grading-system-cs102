@@ -1,0 +1,13 @@
+package grading.style;
+
+/**
+ * One place where a student's code breaks a style rule.
+ *
+ * @param line    the line in the file as the student submitted it; 0 when the whole file is meant
+ * @param column  the column, or 0 when unknown
+ * @param rule    the guide rule that was broken
+ * @param message what is wrong, in plain language
+ * @param code    the offending line of code, shortened when long; empty when unavailable
+ */
+public record StyleViolation(int line, int column, StyleRules.Rule rule, String message, String code) {
+}

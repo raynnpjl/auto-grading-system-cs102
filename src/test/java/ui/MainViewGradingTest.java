@@ -29,6 +29,7 @@ import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,12 +61,24 @@ class MainViewGradingTest {
         Platform.exit();
     }
 
+    // Removes the normalized copies this test's imports created.
+    @AfterEach
+    void closeView() throws Exception {
+        fx(() -> {
+            controller.shutdown();
+            return null;
+        });
+    }
+
     @BeforeEach
     void createViewAndAssessment() throws Exception {
         fx(() -> {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/ui/main-view.fxml"));
             root = loader.load();
             controller = loader.getController();
+            // Dialogs open real windows; keep test runs off the screen.
+            controller.disableAutomaticIdentityPrompt();
+            controller.useReportsFolder(temporary.resolve("reports"));
             Scene scene = new Scene(root, 1320, 920);
             scene.getStylesheets().add(getClass().getResource("/ui/styles.css").toExternalForm());
             root.applyCss();
@@ -99,12 +112,13 @@ class MainViewGradingTest {
         importStudents(student);
         assertFalse(fx(() -> button("runGradingButton").isDisabled()));
 
+        // A missing dependency is reported but costs only its question, so grading stays available.
         for (String relative : java.util.List.of("Q2/personstester.txt", "Q2/DataException.class")) {
             Path file = student.resolve(relative);
             byte[] content = Files.readAllBytes(file);
             Files.delete(file);
             importStudents(student);
-            assertTrue(fx(() -> button("runGradingButton").isDisabled()));
+            assertFalse(fx(() -> button("runGradingButton").isDisabled()));
             assertTrue(fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText().contains(relative)));
             Files.write(file, content);
             importStudents(student);
@@ -129,9 +143,81 @@ class MainViewGradingTest {
         importStudents(student);
         assertFalse(fx(() -> button("runGradingButton").isDisabled()));
 
+        // A missing file costs only its question, so grading stays available.
         Files.delete(student.resolve("Q1/Q1a.java"));
         importStudents(student);
+        assertFalse(fx(() -> button("runGradingButton").isDisabled()));
+        assertTrue(fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText()
+                .contains("READY - Q1a will score 0 (missing files)")));
+
+        // A student whose owner is unconfirmed is skipped; with no one else to grade, Run stays off.
+        Path unknown = Files.createDirectory(temporary.resolve("RenameToYourUsername"));
+        Files.createDirectories(unknown.resolve("Q1"));
+        Files.writeString(unknown.resolve("Q1/Q1a.java"), "public class Q1a {}");
+        importStudents(unknown);
         assertTrue(fx(() -> button("runGradingButton").isDisabled()));
+    }
+
+    @Test
+    void removesNormalizedCopiesWhenReplacedAndWhenClosed() throws Exception {
+        importStudents(student);
+        Path first = normalizedWorkspace();
+        assertTrue(Files.isDirectory(first.resolve("alice")));
+
+        importStudents(student);
+        Path second = normalizedWorkspace();
+        assertFalse(Files.exists(first), "re-importing replaces the previous copies");
+        assertTrue(Files.isDirectory(second.resolve("alice")));
+
+        fx(() -> {
+            controller.shutdown();
+            return null;
+        });
+        assertFalse(Files.exists(second), "closing the window removes this session's copies");
+    }
+
+    private Path normalizedWorkspace() throws Exception {
+        String report = fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText());
+        String marker = "Normalized workspace: ";
+        int start = report.indexOf(marker) + marker.length();
+        return Path.of(report.substring(start, report.indexOf('\n', start)));
+    }
+
+    @Test
+    void gradesConfirmedStudentsAndReportsTheSkippedOnes() throws Exception {
+        Path batch = Files.createDirectory(temporary.resolve("batch"));
+        Files.move(student, batch.resolve("alice"));
+        Path unknown = Files.createDirectories(batch.resolve("RenameToYourUsername/Q1"));
+        Files.writeString(unknown.resolve("Q1a.java"), "public class Q1a {}");
+        importTesters(testers);
+        importStudents(batch);
+        assertFalse(fx(() -> button("runGradingButton").isDisabled()));
+        assertTrue(fx(() -> ((Label) root.lookup("#runReadinessText")).getText()
+                .contains("1 out of 2 submissions ready")));
+        try {
+            fx(() -> { button("runGradingButton").fire(); return null; });
+            await(() -> !button("runGradingButton").isDisabled());
+        } finally {
+            fx(() -> { controller.shutdown(); return null; });
+        }
+        String report = fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText());
+        assertTrue(report.contains("[alice]") && report.contains("Total: 10.0"), report);
+        assertTrue(report.contains("Not graded (confirm identity"), report);
+        assertTrue(report.contains("Reports\n=======\nAttempt ") && report.contains("summary.pdf"), report);
+        try (var attempts = Files.list(temporary.resolve("reports"))) {
+            Path attempt = attempts.findFirst().orElseThrow();
+            assertTrue(Files.exists(attempt.resolve("students/alice.pdf")));
+            assertTrue(Files.exists(attempt.resolve("summary.pdf")));
+        }
+        assertFalse(fx(() -> button("saveReportsButton").isDisabled()));
+        Path zip = temporary.resolve("saved.zip");
+        fx(() -> {
+            controller.saveReports(zip);
+            return null;
+        });
+        await(() -> Files.exists(zip) && !button("saveReportsButton").isDisabled());
+        assertTrue(fx(() -> ((Label) root.lookup("#consoleStatus")).getText()).contains("Reports saved"));
+        assertTrue(report.contains("  unknown-"), report);
     }
 
     @Test
@@ -194,7 +280,8 @@ class MainViewGradingTest {
             int width = (int) snapshot.getWidth();
             int height = (int) snapshot.getHeight();
             int[] pixels = new int[width * height];
-            snapshot.getPixelReader().getPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0, width);
+            snapshot.getPixelReader().getPixels(0, 0, width, height, PixelFormat.getIntArgbInstance(), pixels, 0,
+                    width);
             BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             image.setRGB(0, 0, width, height, pixels, 0, width);
             ImageIO.write(image, "png", Path.of("target", filename).toFile());
@@ -209,7 +296,8 @@ class MainViewGradingTest {
         Files.writeString(testers.resolve("Q1aTester.java"), """
                 public class Q1aTester {
                     public static void main(String[] args) throws Exception {
-                        java.nio.file.Files.writeString(java.nio.file.Path.of("%s"), "" + ProcessHandle.current().pid());
+                        java.nio.file.Files.writeString(java.nio.file.Path.of("%s"), "" + ProcessHandle.current()
+                                .pid());
                         Thread.sleep(60000);
                     }
                 }

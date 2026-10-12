@@ -11,13 +11,24 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-final class BoundedProcessRunner {
+/**
+ * Runs a grading process with a time limit and a cap on captured output. On timeout, output
+ * overflow or interruption, the process and every child it started are killed.
+ */
+final class BoundedProcessRunner implements ProcessRunner {
 
-    static final int MAX_OUTPUT_BYTES = 1024 * 1024;
     private static final long POLL_MILLIS = 20;
     private static final Duration CLEANUP_TIMEOUT = Duration.ofSeconds(2);
+    private static final int BUFFER_BYTES = 8192;
 
-    ProcessResult run(List<String> command, Path directory, Duration timeout)
+    private final int maxOutputBytes;
+
+    BoundedProcessRunner(int maxOutputBytes) {
+        this.maxOutputBytes = maxOutputBytes;
+    }
+
+    @Override
+    public ProcessResult run(List<String> command, Path directory, Duration timeout)
             throws IOException, InterruptedException {
         ProcessBuilder builder = new ProcessBuilder(command).directory(directory.toFile());
         // keep ambient Java options and application classpaths out of grading processes.
@@ -26,8 +37,8 @@ final class BoundedProcessRunner {
         }
         long started = System.nanoTime();
         Process process = builder.start();
-        OutputCapture stdout = new OutputCapture(process.getInputStream());
-        OutputCapture stderr = new OutputCapture(process.getErrorStream());
+        OutputCapture stdout = new OutputCapture(process.getInputStream(), maxOutputBytes);
+        OutputCapture stderr = new OutputCapture(process.getErrorStream(), maxOutputBytes);
         Thread stdoutReader = Thread.ofPlatform().daemon().name("grading-stdout").start(stdout);
         Thread stderrReader = Thread.ofPlatform().daemon().name("grading-stderr").start(stderr);
         Set<ProcessHandle> descendants = new LinkedHashSet<>();
@@ -103,7 +114,8 @@ final class BoundedProcessRunner {
         try (var children = process.descendants()) {
             children.forEach(descendants::add);
         } catch (RuntimeException exception) {
-            throw new IOException("Process-tree inspection is unavailable; grading requires process-control permissions.", exception);
+            throw new IOException("Process-tree inspection is unavailable; "
+                    + "grading requires process-control permissions.", exception);
         }
     }
 
@@ -122,21 +134,23 @@ final class BoundedProcessRunner {
 
     private static final class OutputCapture implements Runnable {
         private final InputStream input;
+        private final int limit;
         private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         private volatile boolean overflow;
         private IOException failure;
 
-        private OutputCapture(InputStream input) {
+        private OutputCapture(InputStream input, int limit) {
             this.input = input;
+            this.limit = limit;
         }
 
         @Override
         public void run() {
             try (input) {
-                byte[] buffer = new byte[8192];
+                byte[] buffer = new byte[BUFFER_BYTES];
                 int count;
                 while ((count = input.read(buffer)) != -1) {
-                    int available = MAX_OUTPUT_BYTES - bytes.size();
+                    int available = limit - bytes.size();
                     bytes.write(buffer, 0, Math.min(available, count));
                     if (count > available) {
                         overflow = true;

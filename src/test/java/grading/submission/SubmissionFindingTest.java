@@ -39,6 +39,22 @@ class SubmissionFindingTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"MISSING_HEADER_EMAIL", "USERNAME_UNKNOWN", "HEADER_IDENTITY_MISMATCH",
+        "CONFLICTING_HEADER_IDENTITIES", "SUBMISSION_UNREADABLE"})
+    void onlyUnconfirmedOwnersAndUnreadableSubmissionsBlockGrading(String code) {
+        assertTrue(new SubmissionFinding(FindingSeverity.ERROR, code, "Validation failed", false).blocksGrading());
+        assertFalse(new SubmissionFinding(FindingSeverity.WARNING, code, "Repaired", true).blocksGrading());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MISSING_JAVA_FILE", "MISSING_DEPENDENCY", "DEPENDENCY_UNREADABLE",
+        "JAVA_FILE_UNREADABLE", "JAVA_FILE_TOO_LARGE",
+        "HEADER_UNREADABLE", "UNSAFE_ZIP_ENTRY"})
+    void fileProblemsDoNotBlockGrading(String code) {
+        assertFalse(new SubmissionFinding(FindingSeverity.ERROR, code, "Validation failed", false).blocksGrading());
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"INFO", "WARNING"})
     void nonErrorsDoNotPromptForManualCorrection(String severity) {
         SubmissionFinding finding = new SubmissionFinding(

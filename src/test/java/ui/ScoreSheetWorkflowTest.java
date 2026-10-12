@@ -37,6 +37,7 @@ import javafx.scene.control.DialogPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.paint.Color;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,12 +75,24 @@ class ScoreSheetWorkflowTest {
         Platform.exit();
     }
 
+    // Removes the normalized copies this test's imports created.
+    @AfterEach
+    void closeView() throws Exception {
+        fx(() -> {
+            controller.shutdown();
+            return null;
+        });
+    }
+
     @BeforeEach
     void createViewAssessmentAndSheet() throws Exception {
         fx(() -> {
             FXMLLoader loader = new FXMLLoader(getClass().getResource("/ui/main-view.fxml"));
             root = loader.load();
             controller = loader.getController();
+            // Dialogs open real windows; keep test runs off the screen.
+            controller.disableAutomaticIdentityPrompt();
+            controller.useReportsFolder(temporary.resolve("reports"));
             new Scene(root, 1320, 920);
             return null;
         });
@@ -161,6 +174,8 @@ class ScoreSheetWorkflowTest {
 
         grade();
         assertTrue(fx(() -> button("writeScoresButton").isDisabled()), "no valid sheet imported");
+        assertTrue(console().startsWith("Score sheet not imported"), "the reason stays visible: " + console());
+        assertTrue(console().contains("Write scores stays unavailable"), console());
         fx(() -> { controller.importScoreSheet(sheet); return null; });
         assertFalse(fx(() -> button("writeScoresButton").isDisabled()));
 

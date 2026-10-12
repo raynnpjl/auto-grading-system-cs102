@@ -4,6 +4,14 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
+/**
+ * A student identity confirmed by the marker. Creating one rejects malformed values and an email
+ * that belongs to a different username.
+ *
+ * @param username the student's LMS username
+ * @param name     the student's full name
+ * @param email    the student's email address, whose local part matches the username
+ */
 public record StudentIdentity(String username, String name, String email) {
 
     private static final Pattern USERNAME_PATTERN = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{1,79}");
