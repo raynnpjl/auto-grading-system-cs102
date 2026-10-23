@@ -1,5 +1,7 @@
 package ui;
 
+import grading.progress.ProgressServer;//xuan
+import grading.progress.ProgressTracker;//xuan
 import grading.assessment.AssessmentDefinition;
 import grading.common.Messages;
 import grading.config.GradingSettings;
@@ -54,23 +56,25 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 
 /**
- * Handles the main window's actions: importing testers, submissions and the score sheet, running
- * grading in the background, and showing what was found. The work itself is done by the grading
+ * Handles the main window's actions: importing testers, submissions and the
+ * score sheet, running
+ * grading in the background, and showing what was found. The work itself is
+ * done by the grading
  * services, and the reports are formatted by the reporting classes.
  */
 public final class MainViewController {
 
     private final GradingSettings settings = GradingSettings.current();
     private final SubmissionPreparationService submissionService = new SubmissionPreparationService(settings);
-    private final SubmissionCorrectionService correctionService =
-            new SubmissionCorrectionService(submissionService);
+    private final SubmissionCorrectionService correctionService = new SubmissionCorrectionService(submissionService);
     private final TesterFileValidationService testerService = new TesterFileValidationService(settings);
     private final IdentityDialog identityDialog = new IdentityDialog(IdentitySuggestions.fromSettings());
     private final GradingLog gradingLog = new GradingLog(settings.maxLogCharacters());
     private final SubmissionWorkspaces workspaces = SubmissionWorkspaces.fromSettings();
     private volatile boolean closing;
     private Path reportsFolder = settings.reportsFolder();
-    // The latest grading attempt's report folder and id, kept until the next grading run.
+    // The latest grading attempt's report folder and id, kept until the next
+    // grading run.
     private Path latestReports;
     private String latestAttemptId;
     private String testerReport = "";
@@ -91,9 +95,12 @@ public final class MainViewController {
     private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
     private ScoreSummary latestScores;
     private ScoreSheet scoreSheet;
-    // Why the last score sheet import failed; kept on screen until a sheet is imported.
+    // Why the last score sheet import failed; kept on screen until a sheet is
+    // imported.
     private String scoreSheetProblem;
     private String scoreSheetReport = "";
+    private final ProgressTracker progress = new ProgressTracker(); // xuan
+    private ProgressServer dashboard; // xuan
 
     @FXML
     private Button testerImportButton;
@@ -148,8 +155,17 @@ public final class MainViewController {
 
     @FXML
     private void initialize() {
-        // Removes normalized copies left behind by sessions that have closed or crashed.
+        // Removes normalized copies left behind by sessions that have closed or
+        // crashed.
         startWorker(workspaces::removeAbandoned, "workspace-cleanup", true);
+
+        // new
+        try {
+            dashboard = new ProgressServer(progress, 8080);
+            dashboard.start();
+        } catch (IOException exception) {
+            consoleStatus.setText("Dashboard unavailable: port 8080 is already in use");
+        }
     }
 
     @FXML
@@ -293,14 +309,13 @@ public final class MainViewController {
             protected GradingRun call() throws IOException, InterruptedException {
                 Consumer<String> log = message -> {
                     System.out.println(message);
-                    Platform.runLater(() -> {
-                        if (gradingTask == this) {
-                            appendGradingLog(message);
-                        }
-                    });
+                    progress.log(message); 
                 };
                 LocalDateTime started = LocalDateTime.now();
-                List<StudentGradingResult> results = new JavaGradingService(log).gradeBatch(submissions, testers);
+                // List<StudentGradingResult> results = new
+                // JavaGradingService(log).gradeBatch(submissions, testers);
+                List<StudentGradingResult> results = new JavaGradingService(log, progress).gradeBatch(submissions,
+                        testers); // xuan
                 log.accept("Checking style against the CS102 Java Coding Style guide.");
                 GradingAttempt attempt = GradingAttempt.assemble(started, testers.source(), submissionsFolder,
                         settings, submissions, results, new StyleChecker(settings.style()));
@@ -310,6 +325,7 @@ public final class MainViewController {
         };
         Task<GradingRun> task = gradingTask;
         task.setOnSucceeded(event -> {
+            progress.finish(); //xuan
             gradingTask = null;
             updateReadiness();
             GradingRun run = task.getValue();
@@ -334,6 +350,7 @@ public final class MainViewController {
                     + " skipped, " + failedParts + " parts with errors.");
         });
         task.setOnFailed(event -> {
+            progress.finish(); //xuan
             gradingTask = null;
             updateReadiness();
             String message = "Grading failed: " + Messages.describe(task.getException());
@@ -344,6 +361,7 @@ public final class MainViewController {
             System.err.println(message);
         });
         task.setOnCancelled(event -> {
+            progress.finish(); //xuan
             gradingTask = null;
             updateReadiness();
             System.out.println("Grading cancelled.");
@@ -355,7 +373,8 @@ public final class MainViewController {
                 + (skipped.isEmpty() ? "." : "; skipping " + skipped.size() + " with unconfirmed identity.");
         appendGradingLog(start);
         System.out.println(start);
-        // Keep the worker alive on application exit until interrupted process cleanup has finished,
+        // Keep the worker alive on application exit until interrupted process cleanup
+        // has finished,
         // then remove the normalized copies it was grading.
         startWorker(() -> {
             try {
@@ -383,14 +402,29 @@ public final class MainViewController {
         reportsFolder = folder;
     }
 
-    /** Stops the identity dialog from opening by itself; the Resolve issues button still opens it. */
+    /**
+     * Stops the identity dialog from opening by itself; the Resolve issues button
+     * still opens it.
+     */
     void disableAutomaticIdentityPrompt() {
         identityPromptEnabled = false;
     }
 
-    /** Stops grading and removes this session's normalized copies; called when the window closes. */
+    /**
+     * Stops grading and removes this session's normalized copies; called when the
+     * window closes.
+     */
     void shutdown() {
+
+        //xuan
         closing = true;
+        if (dashboard != null) {
+            dashboard.stop();
+            dashboard = null;
+        }
+        closing = true;
+        //xuan
+
         if (gradingTask != null) {
             // the grading worker removes the copies once its processes have been terminated
             gradingTask.cancel(true);
@@ -451,8 +485,8 @@ public final class MainViewController {
 
     @FXML
     private void writeScoresToSheet() {
-        writeScoresToSheet(preview ->
-                ScoreSheetConfirmation.confirm(preview, writeScoresButton.getScene().getWindow()));
+        writeScoresToSheet(
+                preview -> ScoreSheetConfirmation.confirm(preview, writeScoresButton.getScene().getWindow()));
     }
 
     void writeScoresToSheet(Predicate<ScoreSheetPreview> confirmation) {
@@ -561,6 +595,9 @@ public final class MainViewController {
         readySubmissionCount = ready;
         totalSubmissionCount = results.size();
         latestSubmissionResults = List.copyOf(results);
+
+        progress.prepare(results);
+
         latestSubmissionWorkspace = workspace;
 
         TreeItem<String> root = new TreeItem<>("Normalized submissions");
