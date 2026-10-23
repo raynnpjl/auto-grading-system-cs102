@@ -16,6 +16,7 @@ Run these commands from this directory on macOS or Linux:
 ./compile.sh
 ./run.sh
 ```
+Then click the link to open up the ui on your browser(ie Chrome)
 
 `compile.sh` compiles every source file into `target/classes` and `run.sh` starts the
 application from this folder, so the files in `config/` are found. Both use the Maven Wrapper;
@@ -27,6 +28,7 @@ On Windows Command Prompt:
 mvnw.cmd clean verify
 mvnw.cmd javafx:run
 ```
+Then click the link to open up the ui on your browser(ie Chrome)
 
 ## Grading workflow
 
