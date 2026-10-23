@@ -144,10 +144,66 @@
     -fx-opacity: 0.75;
 }
 
-.run-button {
+.run-button,
+.import-button {
     -fx-padding: 12 20;
     -fx-background-color: #2e686a;
     -fx-text-fill: white;
+    -fx-cursor: hand;
+}
+
+.import-button:hover {
+    -fx-background-color: #397c7e;
+}
+
+.import-button:pressed {
+    -fx-background-color: #245759;
+}
+
+.resolution-button {
+    -fx-background-color: #f0b429;
+    -fx-text-fill: #172235;
+    -fx-cursor: hand;
+}
+
+.resolution-button:hover {
+    -fx-background-color: #ffc94d;
+}
+
+.score-sheet-button {
+    -fx-background-color: #e3eeee;
+    -fx-text-fill: #1f4f51;
+    -fx-cursor: hand;
+}
+
+.score-sheet-button:hover {
+    -fx-background-color: #d1e4e4;
+}
+
+.dialog-primary-button {
+    -fx-background-color: #2e686a;
+    -fx-text-fill: white;
+    -fx-cursor: hand;
+}
+
+.dialog-primary-button:hover {
+    -fx-background-color: #397c7e;
+}
+
+.dialog-primary-button:pressed {
+    -fx-background-color: #245759;
+}
+
+.dialog-secondary-button {
+    -fx-background-color: white;
+    -fx-border-color: #c9d3df;
+    -fx-border-radius: 5;
+    -fx-text-fill: #243248;
+    -fx-cursor: hand;
+}
+
+.dialog-secondary-button:hover {
+    -fx-background-color: #f1f4f8;
 }
 
 .play-icon {
@@ -192,4 +248,9 @@
 .console .scroll-pane,
 .console .viewport {
     -fx-background-color: transparent;
+}
+
+.validation-message {
+    -fx-text-fill: #b42318;
+    -fx-font-weight: bold;
 }

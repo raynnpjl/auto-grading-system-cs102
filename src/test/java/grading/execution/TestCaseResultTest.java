@@ -1,0 +1,66 @@
+package grading.execution;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+
+class TestCaseResultTest {
+
+    @Test
+    void readsEachTestCaseWithExpectedAndActualOutput() {
+        List<TestCaseResult> cases = TestCaseResult.parse("""
+                -------------------------------------------------------
+                Test 1: getIsogramWords([alice, ben])
+                Expected  :|[alice, ben]|
+                Actual    :|[alice, ben]|
+                Passed
+                -------------------------------------------------------
+                Test 2: getTopStudent(is442.txt, IS101)
+                Failed -> Expecting a Data Exception
+                Test 3: getIsogramWords([zoe])
+                Expected  :|[zoe]|
+                Actual    :|[]|
+                Failed
+                2.0
+                """, false);
+
+        assertEquals(3, cases.size());
+        TestCaseResult first = cases.getFirst();
+        assertEquals("getIsogramWords([alice, ben])", first.description());
+        assertEquals(TestCaseResult.Outcome.PASSED, first.outcome());
+        assertEquals(Optional.of("[alice, ben]"), first.expected());
+        assertEquals(TestCaseResult.Outcome.FAILED, cases.get(1).outcome());
+        assertEquals("Expecting a Data Exception", cases.get(1).detail());
+        assertTrue(cases.get(1).expected().isEmpty());
+        assertEquals(Optional.of("[]"), cases.get(2).actual());
+    }
+
+    @Test
+    void reportsSkippedAndUnfinishedTestCasesInTheirOriginalPositions() {
+        String stdout = """
+                Test 1: first()
+                Passed
+                Test case 2 skipped: it did not finish within the time limit. Test: second(loops)
+                Failed -> Timed out
+                Test 2: third()
+                """;
+
+        List<TestCaseResult> stopped = TestCaseResult.parse(stdout, true);
+
+        assertEquals(List.of(1, 2, 3), stopped.stream().map(TestCaseResult::number).toList());
+        assertEquals(TestCaseResult.Outcome.TIMED_OUT, stopped.get(1).outcome());
+        assertEquals("second(loops)", stopped.get(1).description());
+        assertEquals(TestCaseResult.Outcome.TIMED_OUT, stopped.get(2).outcome());
+        assertEquals("third()", stopped.get(2).description());
+        assertEquals(TestCaseResult.Outcome.DID_NOT_FINISH, TestCaseResult.parse(stdout, false).get(2).outcome());
+    }
+
+    @Test
+    void outputWithoutTestCasesGivesNone() {
+        assertTrue(TestCaseResult.parse("12.0\n", false).isEmpty());
+        assertTrue(TestCaseResult.parse(null, false).isEmpty());
+    }
+}

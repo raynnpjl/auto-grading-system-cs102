@@ -1,0 +1,39 @@
+package grading.reporting;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class PdfReportRendererTest {
+
+    @TempDir
+    Path temporary;
+
+    @Test
+    void writesUnusualStudentOutputAndLongTablesWithoutFailing() throws IOException {
+        StringBuilder markdown = new StringBuilder("# Report\n\n**Bold** and *italic* and `code`.\n\n")
+                .append("| # | Expected | Actual |\n|---|---|---|\n");
+        for (int row = 1; row <= 120; row++) {
+            markdown.append("| ").append(row).append(" | `café → 你好 😀\ttab` | ")
+                    .append(PlainLanguage.code("x".repeat(400))).append(" |\n");
+        }
+        markdown.append("\n```\n").append("y".repeat(500)).append("\n```\n- a bullet\n  - a nested bullet\n");
+        Path pdf = temporary.resolve("report.pdf");
+
+        new PdfReportRenderer().render(markdown.toString(), pdf, "Footer");
+
+        try (PDDocument document = Loader.loadPDF(pdf.toFile())) {
+            assertTrue(document.getNumberOfPages() > 1, "a long table continues on the next page");
+            String text = new PDFTextStripper().getText(document).replaceAll("\\s+", " ");
+            assertTrue(text.contains("café -> ?? ? tab"), text.substring(0, Math.min(400, text.length())));
+            assertTrue(text.contains("Bold and italic and code."));
+            assertTrue(text.contains("Page 2 of " + document.getNumberOfPages()));
+        }
+    }
+}

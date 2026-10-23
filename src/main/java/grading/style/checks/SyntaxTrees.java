@@ -1,0 +1,65 @@
+package grading.style.checks;
+
+import com.puppycrawl.tools.checkstyle.api.DetailAST;
+import com.puppycrawl.tools.checkstyle.api.TokenTypes;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
+/** Small helpers for walking Checkstyle syntax trees. */
+final class SyntaxTrees {
+
+    /** Code inside these belongs to another method or class, not to the statement being checked. */
+    private static final Set<Integer> SEPARATE_SCOPES = Set.of(
+            TokenTypes.CLASS_DEF, TokenTypes.INTERFACE_DEF, TokenTypes.ENUM_DEF, TokenTypes.RECORD_DEF,
+            TokenTypes.LAMBDA, TokenTypes.OBJBLOCK);
+
+    private static final Set<Integer> LOOPS = Set.of(
+            TokenTypes.LITERAL_FOR, TokenTypes.LITERAL_WHILE, TokenTypes.LITERAL_DO);
+
+    private SyntaxTrees() {
+    }
+
+    static boolean isLoop(DetailAST node) {
+        return LOOPS.contains(node.getType());
+    }
+
+    static boolean isSeparateScope(DetailAST node) {
+        return SEPARATE_SCOPES.contains(node.getType());
+    }
+
+    static List<DetailAST> children(DetailAST node) {
+        List<DetailAST> children = new ArrayList<>();
+        for (DetailAST child = node.getFirstChild(); child != null; child = child.getNextSibling()) {
+            children.add(child);
+        }
+        return children;
+    }
+
+    /** The operands of an expression node, ignoring the parentheses that may surround them. */
+    static List<DetailAST> operands(DetailAST node) {
+        return children(node).stream()
+                .filter(child -> child.getType() != TokenTypes.LPAREN && child.getType() != TokenTypes.RPAREN)
+                .toList();
+    }
+
+    /** A text form of a subtree that is equal for equal expressions, whatever their spacing. */
+    static String canonical(DetailAST node) {
+        StringBuilder text = new StringBuilder(node.getText());
+        List<DetailAST> operands = operands(node);
+        if (!operands.isEmpty()) {
+            text.append('(');
+            operands.forEach(operand -> text.append(canonical(operand)).append(','));
+            text.append(')');
+        }
+        return text.toString();
+    }
+
+    /** The label of a labelled loop, or null. */
+    static String label(DetailAST loop) {
+        DetailAST parent = loop.getParent();
+        return parent != null && parent.getType() == TokenTypes.LABELED_STAT
+                ? parent.getFirstChild().getText()
+                : null;
+    }
+}

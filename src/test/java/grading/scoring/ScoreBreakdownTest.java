@@ -1,0 +1,38 @@
+package grading.scoring;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import grading.config.PenaltySettings;
+import grading.execution.QuestionGradingResult;
+import grading.execution.StudentGradingResult;
+import grading.style.StudentStyleResult;
+import java.util.List;
+import java.util.OptionalDouble;
+import org.junit.jupiter.api.Test;
+
+class ScoreBreakdownTest {
+
+    private static final StudentGradingResult GRADED = new StudentGradingResult("alice", List.of(
+            new QuestionGradingResult("Q1a", QuestionGradingResult.Status.GRADED, 3, 3, 0, null, null, ""),
+            new QuestionGradingResult("Q1b", QuestionGradingResult.Status.GRADED, 1, 1, 2, null, null, "")));
+
+    @Test
+    void withoutPenaltiesTheFinalMarkIsTheTesterMark() {
+        ScoreBreakdown score = ScoreBreakdown.of(GRADED, null, new PenaltySettings(0, 0));
+
+        assertEquals(4, score.testerMarks());
+        assertEquals(0, score.stylePenalty());
+        assertEquals(4, score.finalMark());
+        assertEquals(List.of("Q1a", "Q1b"), List.copyOf(score.questionScores().keySet()));
+        assertEquals(4, score.toStudentScore().total());
+    }
+
+    @Test
+    void stylePenaltiesAreCappedAndNeverMakeTheMarkNegative() {
+        StudentStyleResult noStyle = new StudentStyleResult("alice", List.of(), OptionalDouble.of(10), 10, List.of());
+
+        assertEquals(4, ScoreBreakdown.of(GRADED, noStyle, new PenaltySettings(0.5, 2)).finalMark());
+        assertEquals(0, ScoreBreakdown.of(new StudentGradingResult("bob", List.of()), noStyle,
+                new PenaltySettings(1, 5)).finalMark());
+    }
+}
