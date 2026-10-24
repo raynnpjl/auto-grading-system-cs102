@@ -2,6 +2,7 @@ package web;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import grading.common.Json;
 import grading.common.Messages;
 import grading.config.GradingSettings;
 import grading.execution.JavaGradingService;
@@ -53,6 +54,10 @@ import java.util.zip.ZipInputStream;
 public final class WebApplication {
 
     private static final int PORT = 8080;
+    private static final String EMPTY_UPLOAD =
+            "The upload is empty or is not a ZIP file. Choose a folder that contains files.";
+    private static final String NO_SUBMISSIONS = "No student submissions were found. Choose the folder "
+            + "that holds the student ZIPs or folders, or one student's folder.";
 
     private final GradingSettings settings = GradingSettings.current();
     private final ProgressTracker progress = new ProgressTracker();
@@ -125,14 +130,17 @@ public final class WebApplication {
             }
         } catch (Exception exception) {
             exception.printStackTrace();
-            sendJson(exchange, 500, "{\"error\":" + quote(String.valueOf(exception.getMessage())) + "}");
+            sendJson(exchange, 500, "{\"error\":" + Json.quote(String.valueOf(exception.getMessage())) + "}");
         }
     }
 
     /** POST /api/testers: the body is a zip of the Tester-Files folder. */
     private void importTesters(HttpExchange exchange) throws IOException {
         Path folder = Files.createDirectories(uploads.resolve("testers-" + UUID.randomUUID()));
-        unzip(exchange.getRequestBody().readAllBytes(), folder);
+        if (unzip(exchange.getRequestBody().readAllBytes(), folder) == 0) {
+            sendJson(exchange, 400, "{\"error\":" + Json.quote(EMPTY_UPLOAD) + "}");
+            return;
+        }
 
         // Unwrap the root folder if JSZip archived a single outer folder.
         Path targetFolder = unwrapSingleFolder(folder);
@@ -149,12 +157,20 @@ public final class WebApplication {
      */
     private void importSubmissions(HttpExchange exchange) throws IOException {
         Path input = Files.createDirectories(uploads.resolve("submissions-" + UUID.randomUUID()));
-        unzip(exchange.getRequestBody().readAllBytes(), input);
+        if (unzip(exchange.getRequestBody().readAllBytes(), input) == 0) {
+            sendJson(exchange, 400, "{\"error\":" + Json.quote(EMPTY_UPLOAD) + "}");
+            return;
+        }
 
         Path targetInput = unwrapSingleFolder(input);
         Path workspace = Files.createDirectories(uploads.resolve("normalized-" + UUID.randomUUID()));
 
         List<SubmissionValidationResult> prepared = submissionService.prepareBatch(targetInput, workspace);
+        // Keep the previous import when nothing usable was uploaded.
+        if (prepared.isEmpty()) {
+            sendJson(exchange, 400, "{\"error\":" + Json.quote(NO_SUBMISSIONS) + "}");
+            return;
+        }
         submissions = List.copyOf(prepared);
         submissionWorkspace = workspace;
         clearAttempt();
@@ -188,7 +204,7 @@ public final class WebApplication {
             identity = new StudentIdentity(form.getOrDefault("username", ""),
                     form.getOrDefault("name", ""), form.getOrDefault("email", ""));
         } catch (IllegalArgumentException exception) {
-            sendJson(exchange, 400, "{\"error\":" + quote(exception.getMessage()) + "}");
+            sendJson(exchange, 400, "{\"error\":" + Json.quote(exception.getMessage()) + "}");
             return;
         }
 
@@ -319,7 +335,7 @@ public final class WebApplication {
         } catch (IOException exception) {
             uploadedSheet = null;
             uploadedSheetName = "";
-            sendJson(exchange, 400, "{\"error\":" + quote(Messages.describe(exception)) + "}");
+            sendJson(exchange, 400, "{\"error\":" + Json.quote(Messages.describe(exception)) + "}");
             return;
         } finally {
             Files.deleteIfExists(temporary);
@@ -336,13 +352,13 @@ public final class WebApplication {
         }
         ScoreSheetPreview preview = scoreSheetUpdater.preview(sheet, currentScores());
         String entries = preview.entries().stream()
-                .map(entry -> "{\"username\":" + quote(entry.username())
-                        + ",\"previous\":" + quote(entry.previousScore())
-                        + ",\"score\":" + quote(entry.newScore()) + "}")
+                .map(entry -> "{\"username\":" + Json.quote(entry.username())
+                        + ",\"previous\":" + Json.quote(entry.previousScore())
+                        + ",\"score\":" + Json.quote(entry.newScore()) + "}")
                 .collect(Collectors.joining(",", "[", "]"));
         sendJson(exchange, 200, "{\"loaded\":true"
                 + ",\"graded\":" + (latestAttempt != null)
-                + ",\"name\":" + quote(uploadedSheetName)
+                + ",\"name\":" + Json.quote(uploadedSheetName)
                 + ",\"sheetRows\":" + sheet.rowCount()
                 + ",\"entries\":" + entries
                 + ",\"notInSheet\":" + quoteAll(preview.notInSheet())
@@ -379,7 +395,7 @@ public final class WebApplication {
         return "{\"testersReady\":" + testersReady
                 + ",\"submissionsReady\":" + submissionsReady
                 + ",\"reportsReady\":" + (latestAttemptFolder != null)
-                + ",\"scoreSheetName\":" + quote(uploadedSheet == null ? "" : uploadedSheetName)
+                + ",\"scoreSheetName\":" + Json.quote(uploadedSheet == null ? "" : uploadedSheetName)
                 + "," + base.substring(1);
     }
 
@@ -419,12 +435,12 @@ public final class WebApplication {
 
     private static String messages(List<SubmissionFinding> findings) {
         return findings.stream()
-                .map(finding -> quote(finding.message()))
+                .map(finding -> Json.quote(finding.message()))
                 .collect(Collectors.joining(",", "[", "]"));
     }
 
     private static String quoteAll(List<String> values) {
-        return values.stream().map(WebApplication::quote).collect(Collectors.joining(",", "[", "]"));
+        return values.stream().map(Json::quote).collect(Collectors.joining(",", "[", "]"));
     }
 
     /** Reads "a=1&b=2" into a map, decoding the %20-style escapes. */
@@ -441,12 +457,17 @@ public final class WebApplication {
         return values;
     }
 
-    /** Extracts a zip into a folder. Refuses entries that would be written outside that folder. */
-    private static void unzip(byte[] zipBytes, Path destination) throws IOException {
+    /**
+     * Extracts a zip into a folder and returns how many entries it held; 0 means the body was empty
+     * or was not a zip. Refuses entries that would be written outside that folder.
+     */
+    private static int unzip(byte[] zipBytes, Path destination) throws IOException {
         Path root = destination.toAbsolutePath().normalize();
+        int entries = 0;
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
+                entries++;
                 Path target = root.resolve(entry.getName()).normalize();
                 if (!target.startsWith(root)) {
                     throw new IOException("Unsafe path in the ZIP: " + entry.getName());
@@ -460,6 +481,7 @@ public final class WebApplication {
                 zip.closeEntry();
             }
         }
+        return entries;
     }
 
     private static String page() throws IOException {
@@ -496,27 +518,5 @@ public final class WebApplication {
             throws IOException {
         send(exchange, 200, type, bytes, Map.of(
                 "Content-Disposition", "attachment; filename=\"" + fileName + "\""));
-    }
-
-    /** Wraps text in quotes and escapes characters that are not allowed raw in JSON. */
-    static String quote(String text) {
-        StringBuilder out = new StringBuilder("\"");
-        for (char c : text.toCharArray()) {
-            switch (c) {
-                case '"' -> out.append("\\\"");
-                case '\\' -> out.append("\\\\");
-                case '\n' -> out.append("\\n");
-                case '\r' -> out.append("\\r");
-                case '\t' -> out.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        out.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        out.append(c);
-                    }
-                }
-            }
-        }
-        return out.append('"').toString();
     }
 }

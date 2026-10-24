@@ -40,7 +40,8 @@ final class SubmissionDiscovery {
                     .filter(path -> Files.isDirectory(path) || FileSearch.isZip(path))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString().toLowerCase(Locale.ROOT)))
                     .toList();
-            return candidates.isEmpty() ? List.of(input) : candidates;
+            // No student folders or ZIPs: report nothing rather than grading the import folder itself.
+            return candidates;
         }
     }
 
