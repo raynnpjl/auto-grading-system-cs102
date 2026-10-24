@@ -163,6 +163,11 @@ public final class JavaGradingService {
 
     public StudentGradingResult gradeStudent(SubmissionValidationResult submission, TesterValidationResult testers)
             throws InterruptedException {
+        requireValid(testers);
+        if (!submission.isReadyForGrading()) {
+            throw new IllegalArgumentException("Confirm the identity of " + submission.username()
+                    + " before grading this submission.");
+        }
         String username = submission.username();
 log.accept("\n=== Student: " + username + " ===");
 
