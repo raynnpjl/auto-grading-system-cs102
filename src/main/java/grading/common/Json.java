@@ -1,5 +1,8 @@
 package grading.common;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 /** Builds the small pieces of JSON the web page reads. */
 public final class Json {
 
@@ -26,5 +29,20 @@ public final class Json {
             }
         }
         return out.append('"').toString();
+    }
+
+    /** A JSON array of the given texts. */
+    public static String strings(List<String> values) {
+        return values.stream().map(Json::quote).collect(Collectors.joining(",", "[", "]"));
+    }
+
+    /** A JSON array of values that are already JSON, such as objects. */
+    public static String array(List<String> jsonValues) {
+        return jsonValues.stream().collect(Collectors.joining(",", "[", "]"));
+    }
+
+    /** The {"error": message} object the page shows to the user. */
+    public static String error(String message) {
+        return "{\"error\":" + quote(message) + "}";
     }
 }

@@ -3,7 +3,6 @@ package grading.progress;
 import grading.assessment.AssessmentDefinition;
 import grading.common.Json;
 import grading.submission.FindingSeverity;
-import grading.submission.SubmissionFinding;
 import grading.submission.SubmissionValidationResult;
 import java.time.Duration;
 import java.time.Instant;
@@ -145,12 +144,10 @@ public final class ProgressTracker {
                 + ",\"elapsedSeconds\":" + elapsedSeconds()
                 + ",\"currentStudent\":" + Json.quote(currentStudent)
                 + ",\"currentStep\":" + Json.quote(currentStep)
-                + ",\"questions\":" + questionIds.stream().map(Json::quote)
-                        .collect(Collectors.joining(",", "[", "]"))
+                + ",\"questions\":" + Json.strings(questionIds)
                 + ",\"students\":" + rows.values().stream().map(Row::toJson)
                         .collect(Collectors.joining(",", "[", "]"))
-                + ",\"activity\":" + activity.stream().map(Json::quote)
-                        .collect(Collectors.joining(",", "[", "]"))
+                + ",\"activity\":" + Json.strings(activity)
                 + "}";
     }
 
@@ -189,8 +186,7 @@ public final class ProgressTracker {
                             .map(entry -> Json.quote(entry.getKey()) + ":" + entry.getValue())
                             .collect(Collectors.joining(",", "{", "}"))
                     + ",\"total\":" + total
-                    + ",\"issues\":" + issues.stream().map(Json::quote)
-                            .collect(Collectors.joining(",", "[", "]"))
+                    + ",\"issues\":" + Json.strings(issues)
                     + "}";
         }
     }

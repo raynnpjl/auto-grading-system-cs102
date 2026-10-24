@@ -29,6 +29,7 @@ public final class AttemptReportWriter {
     private static final String PDF = ".pdf";
     private static final String TEXT = ".txt";
     private static final String STUDENTS_FOLDER = "students";
+    private static final String UNSAFE_FILE_NAME_CHARACTERS = "[^A-Za-z0-9._-]";
 
     private final Path reportsRoot;
 
@@ -91,6 +92,22 @@ public final class AttemptReportWriter {
         return Files.exists(pdf) ? pdf : attemptFolder.resolve(SUMMARY_NAME + TEXT);
     }
 
+    /**
+     * A student's report in an attempt folder written by this class: the PDF, or the text file saved
+     * when the PDF could not be laid out. Empty when there is none or the name would leave students/.
+     */
+    public static Optional<Path> studentReportOf(Path attemptFolder, String username) {
+        String base = username.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, "_");
+        Path students = attemptFolder.resolve(STUDENTS_FOLDER).normalize();
+        for (String extension : List.of(PDF, TEXT)) {
+            Path candidate = students.resolve(base + extension).normalize();
+            if (candidate.startsWith(students) && Files.isRegularFile(candidate)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
     // Saves the report as a PDF, or as plain text when it cannot be laid out; returns the file name.
     private static String save(String report, Path folder, String baseName, String title, List<String> problems)
             throws IOException {
@@ -119,7 +136,7 @@ public final class AttemptReportWriter {
     }
 
     private static String uniqueName(String username, Set<String> usedNames) {
-        String base = username.replaceAll("[^A-Za-z0-9._-]", "_");
+        String base = username.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, "_");
         String name = base;
         for (int suffix = 2; !usedNames.add(name.toLowerCase(Locale.ROOT)); suffix++) {
             name = base + "-" + suffix;

@@ -1,5 +1,14 @@
 package web;
 
+import static java.net.HttpURLConnection.HTTP_ACCEPTED;
+import static java.net.HttpURLConnection.HTTP_BAD_REQUEST;
+import static java.net.HttpURLConnection.HTTP_CONFLICT;
+import static java.net.HttpURLConnection.HTTP_INTERNAL_ERROR;
+import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
+import static web.HttpResponses.sendError;
+import static web.HttpResponses.sendFile;
+import static web.HttpResponses.sendJson;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import grading.common.Json;
@@ -11,8 +20,6 @@ import grading.progress.ProgressTracker;
 import grading.reporting.AttemptReportWriter;
 import grading.reporting.GradingAttempt;
 import grading.reporting.ReportArchive;
-import grading.reporting.ScoreSheet;
-import grading.reporting.ScoreSheetPreview;
 import grading.reporting.ScoreSheetUpdater;
 import grading.scoring.ScoreBreakdown;
 import grading.scoring.ScoreSummary;
@@ -24,40 +31,38 @@ import grading.submission.SubmissionPreparationService;
 import grading.submission.SubmissionValidationResult;
 import grading.tester.TesterFileValidationService;
 import grading.tester.TesterValidationResult;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 /**
  * The whole application as a web app: uploads, identity confirmation, grading progress, report
- * downloads and the filled score sheet, all served on http://127.0.0.1:8080.
+ * downloads and the filled score sheet, served on this computer at the port set by {@code ui.port}.
  */
 public final class WebApplication {
 
-    private static final int PORT = 8080;
+    private static final String HOST = "127.0.0.1";
     private static final String EMPTY_UPLOAD =
             "The upload is empty or is not a ZIP file. Choose a folder that contains files.";
     private static final String NO_SUBMISSIONS = "No student submissions were found. Choose the folder "
             + "that holds the student ZIPs or folders, or one student's folder.";
+    private static final String GRADING_RUNNING = "Wait until grading has finished.";
+
+    /** One request handler; the route table maps each method and path to one. */
+    @FunctionalInterface
+    private interface Handler {
+        void handle(HttpExchange exchange) throws IOException;
+    }
 
     private final GradingSettings settings = GradingSettings.current();
     private final ProgressTracker progress = new ProgressTracker();
@@ -66,6 +71,18 @@ public final class WebApplication {
     private final SubmissionCorrectionService correctionService = new SubmissionCorrectionService(submissionService);
     private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
     private final AtomicBoolean grading = new AtomicBoolean(false);
+    private final Map<String, Handler> routes = Map.ofEntries(
+            Map.entry("GET /", HttpResponses::sendPage),
+            Map.entry("GET /api/progress", exchange -> sendJson(exchange, progressJson())),
+            Map.entry("GET /api/reports/zip", this::zipReports),
+            Map.entry("GET /api/reports/student", this::studentReport),
+            Map.entry("GET /api/scoresheet/preview", this::scoreSheetPreview),
+            Map.entry("GET /api/scoresheet/download", this::downloadScoreSheet),
+            Map.entry("POST /api/testers", this::importTesters),
+            Map.entry("POST /api/submissions", this::importSubmissions),
+            Map.entry("POST /api/identity", this::confirmIdentity),
+            Map.entry("POST /api/grade", this::startGrading),
+            Map.entry("POST /api/scoresheet", this::uploadScoreSheet));
     private final Path uploads;
 
     private volatile TesterValidationResult testers;
@@ -76,79 +93,56 @@ public final class WebApplication {
     private volatile String latestAttemptId;
     // The folder AttemptReportWriter wrote for the latest attempt; the ZIP and PDF links read from it.
     private volatile Path latestAttemptFolder;
-    // The score sheet the user uploaded, kept in memory. The uploaded file itself is never modified.
-    private volatile ScoreSheet uploadedSheet;
-    private volatile String uploadedSheetName = "";
+    // The score sheet the user uploaded, or null before one is uploaded.
+    private volatile UploadedScoreSheet scoreSheet;
 
     public WebApplication() throws IOException {
         uploads = Files.createTempDirectory("auto-grader-web-");
     }
 
     public static void main(String[] args) throws IOException {
-        new WebApplication().start(PORT);
-        System.out.println("Auto-grader running at http://127.0.0.1:" + PORT);
+        int port = GradingSettings.current().port();
+        new WebApplication().start(port);
+        System.out.println("Auto-grader running at http://" + HOST + ":" + port);
     }
 
     /** Starts the web server. Only this computer can connect to it. */
     public void start(int port) throws IOException {
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(HOST, port), 0);
         // A thread pool, so a slow upload does not block the progress updates.
         server.setExecutor(Executors.newCachedThreadPool());
         server.createContext("/", this::route);
         server.start();
     }
 
-    /** Sends each request to the right handler based on its method and path. */
+    /** Sends each request to the handler registered for its method and path. */
     private void route(HttpExchange exchange) throws IOException {
-        String method = exchange.getRequestMethod();
-        String path = exchange.getRequestURI().getPath();
+        String key = exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath();
+        Handler handler = routes.get(key);
         try {
-            if (method.equals("GET") && path.equals("/")) {
-                send(exchange, 200, "text/html; charset=UTF-8", page(), Map.of());
-            } else if (method.equals("GET") && path.equals("/api/progress")) {
-                sendJson(exchange, 200, progressJson());
-            } else if (method.equals("GET") && path.equals("/api/reports/zip")) {
-                zipReports(exchange);
-            } else if (method.equals("GET") && path.equals("/api/reports/student")) {
-                studentReport(exchange);
-            } else if (method.equals("GET") && path.equals("/api/scoresheet/preview")) {
-                scoreSheetPreview(exchange);
-            } else if (method.equals("GET") && path.equals("/api/scoresheet/download")) {
-                downloadScoreSheet(exchange);
-            } else if (method.equals("POST") && path.equals("/api/testers")) {
-                importTesters(exchange);
-            } else if (method.equals("POST") && path.equals("/api/submissions")) {
-                importSubmissions(exchange);
-            } else if (method.equals("POST") && path.equals("/api/identity")) {
-                confirmIdentity(exchange);
-            } else if (method.equals("POST") && path.equals("/api/grade")) {
-                startGrading(exchange);
-            } else if (method.equals("POST") && path.equals("/api/scoresheet")) {
-                uploadScoreSheet(exchange);
+            if (handler == null) {
+                sendError(exchange, HTTP_NOT_FOUND, "Not found");
             } else {
-                sendJson(exchange, 404, "{\"error\":\"Not found\"}");
+                handler.handle(exchange);
             }
         } catch (Exception exception) {
             exception.printStackTrace();
-            sendJson(exchange, 500, "{\"error\":" + Json.quote(String.valueOf(exception.getMessage())) + "}");
+            sendError(exchange, HTTP_INTERNAL_ERROR, Messages.describe(exception));
         }
     }
 
     /** POST /api/testers: the body is a zip of the Tester-Files folder. */
     private void importTesters(HttpExchange exchange) throws IOException {
-        Path folder = Files.createDirectories(uploads.resolve("testers-" + UUID.randomUUID()));
-        if (unzip(exchange.getRequestBody().readAllBytes(), folder) == 0) {
-            sendJson(exchange, 400, "{\"error\":" + Json.quote(EMPTY_UPLOAD) + "}");
+        Optional<Path> folder = extractUpload(exchange, "testers-");
+        if (folder.isEmpty()) {
+            sendError(exchange, HTTP_BAD_REQUEST, EMPTY_UPLOAD);
             return;
         }
-
-        // Unwrap the root folder if JSZip archived a single outer folder.
-        Path targetFolder = unwrapSingleFolder(folder);
-
-        TesterValidationResult result = testerService.validate(targetFolder);
+        TesterValidationResult result = testerService.validate(folder.get());
         testers = result;
-        sendJson(exchange, 200, "{\"valid\":" + result.isValid()
-                + ",\"messages\":" + messages(result.findings()) + "}");
+        sendJson(exchange, "{\"valid\":" + result.isValid()
+                + ",\"messages\":" + Json.strings(result.findings().stream().map(SubmissionFinding::message).toList())
+                + "}");
     }
 
     /**
@@ -156,19 +150,16 @@ public final class WebApplication {
      * (or one student's folder on its own).
      */
     private void importSubmissions(HttpExchange exchange) throws IOException {
-        Path input = Files.createDirectories(uploads.resolve("submissions-" + UUID.randomUUID()));
-        if (unzip(exchange.getRequestBody().readAllBytes(), input) == 0) {
-            sendJson(exchange, 400, "{\"error\":" + Json.quote(EMPTY_UPLOAD) + "}");
+        Optional<Path> input = extractUpload(exchange, "submissions-");
+        if (input.isEmpty()) {
+            sendError(exchange, HTTP_BAD_REQUEST, EMPTY_UPLOAD);
             return;
         }
-
-        Path targetInput = unwrapSingleFolder(input);
         Path workspace = Files.createDirectories(uploads.resolve("normalized-" + UUID.randomUUID()));
-
-        List<SubmissionValidationResult> prepared = submissionService.prepareBatch(targetInput, workspace);
+        List<SubmissionValidationResult> prepared = submissionService.prepareBatch(input.get(), workspace);
         // Keep the previous import when nothing usable was uploaded.
         if (prepared.isEmpty()) {
-            sendJson(exchange, 400, "{\"error\":" + Json.quote(NO_SUBMISSIONS) + "}");
+            sendError(exchange, HTTP_BAD_REQUEST, NO_SUBMISSIONS);
             return;
         }
         submissions = List.copyOf(prepared);
@@ -177,25 +168,30 @@ public final class WebApplication {
         progress.prepare(prepared);
 
         long ready = prepared.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
-        sendJson(exchange, 200, "{\"total\":" + prepared.size()
+        sendJson(exchange, "{\"total\":" + prepared.size()
                 + ",\"ready\":" + ready
                 + ",\"skipped\":" + (prepared.size() - ready) + "}");
+    }
+
+    /** Extracts the uploaded ZIP into a new folder; empty when the upload was empty or not a ZIP. */
+    private Optional<Path> extractUpload(HttpExchange exchange, String prefix) throws IOException {
+        Path folder = Files.createDirectories(uploads.resolve(prefix + UUID.randomUUID()));
+        return UploadedFolder.extract(exchange.getRequestBody().readAllBytes(), folder);
     }
 
     /** POST /api/identity: a form with target (the current username), username, name and email. */
     private synchronized void confirmIdentity(HttpExchange exchange) throws IOException {
         if (grading.get()) {
-            sendJson(exchange, 409, "{\"error\":\"Wait until grading has finished.\"}");
+            sendError(exchange, HTTP_CONFLICT, GRADING_RUNNING);
             return;
         }
-        Map<String, String> form = parseForm(exchange.getRequestBody().readAllBytes());
+        Map<String, String> form = HttpResponses.form(exchange);
         String target = form.getOrDefault("target", "");
-        SubmissionValidationResult current = submissions.stream()
+        Optional<SubmissionValidationResult> current = submissions.stream()
                 .filter(submission -> submission.username().equals(target))
-                .findFirst()
-                .orElse(null);
-        if (current == null) {
-            sendJson(exchange, 404, "{\"error\":\"Unknown student.\"}");
+                .findFirst();
+        if (current.isEmpty()) {
+            sendError(exchange, HTTP_NOT_FOUND, "Unknown student.");
             return;
         }
 
@@ -204,10 +200,15 @@ public final class WebApplication {
             identity = new StudentIdentity(form.getOrDefault("username", ""),
                     form.getOrDefault("name", ""), form.getOrDefault("email", ""));
         } catch (IllegalArgumentException exception) {
-            sendJson(exchange, 400, "{\"error\":" + Json.quote(exception.getMessage()) + "}");
+            sendError(exchange, HTTP_BAD_REQUEST, exception.getMessage());
             return;
         }
+        replaceSubmission(current.get(), identity);
+        sendJson(exchange, "{\"ok\":true}");
+    }
 
+    /** Re-validates one submission with the identity the marker confirmed and swaps it into the batch. */
+    private void replaceSubmission(SubmissionValidationResult current, StudentIdentity identity) throws IOException {
         Path correctionFolder = Files.createDirectories(
                 submissionWorkspace.resolve("guided-" + UUID.randomUUID()));
         SubmissionValidationResult updated = correctionService.applyIdentity(current, identity, correctionFolder);
@@ -217,7 +218,6 @@ public final class WebApplication {
         submissions = List.copyOf(list);
         clearAttempt();
         progress.prepare(submissions);
-        sendJson(exchange, 200, "{\"ok\":true}");
     }
 
     /** POST /api/grade: starts grading in the background and returns straight away. */
@@ -225,22 +225,22 @@ public final class WebApplication {
         TesterValidationResult testerResult = testers;
         List<SubmissionValidationResult> batch = submissions;
         if (testerResult == null || !testerResult.isValid()) {
-            sendJson(exchange, 400, "{\"error\":\"Upload valid tester files first.\"}");
+            sendError(exchange, HTTP_BAD_REQUEST, "Upload valid tester files first.");
             return;
         }
         if (batch.stream().noneMatch(SubmissionValidationResult::isReadyForGrading)) {
-            sendJson(exchange, 400, "{\"error\":\"No submission is ready for grading.\"}");
+            sendError(exchange, HTTP_BAD_REQUEST, "No submission is ready for grading.");
             return;
         }
         if (!grading.compareAndSet(false, true)) {
-            sendJson(exchange, 409, "{\"error\":\"Grading is already running.\"}");
+            sendError(exchange, HTTP_CONFLICT, "Grading is already running.");
             return;
         }
 
         clearAttempt();
         progress.prepare(batch);
         new Thread(() -> runGrading(batch, testerResult), "grading-runner").start();
-        sendJson(exchange, 202, "{\"started\":true}");
+        sendJson(exchange, HTTP_ACCEPTED, "{\"started\":true}");
     }
 
     /** Does the grading. Runs in its own thread so the page can keep asking for progress. */
@@ -275,7 +275,7 @@ public final class WebApplication {
     private void zipReports(HttpExchange exchange) throws IOException {
         Path folder = latestAttemptFolder;
         if (folder == null || !Files.isDirectory(folder)) {
-            sendJson(exchange, 404, "{\"error\":\"No grading results yet. Run grading first.\"}");
+            sendError(exchange, HTTP_NOT_FOUND, "No grading results yet. Run grading first.");
             return;
         }
         Path zip = Files.createTempFile(uploads, "reports-", ".zip");
@@ -291,100 +291,57 @@ public final class WebApplication {
     /** GET /api/reports/student?username=...: one student's report, read from the attempt folder. */
     private void studentReport(HttpExchange exchange) throws IOException {
         Path folder = latestAttemptFolder;
-        String username = queryOf(exchange).getOrDefault("username", "");
-        Path report = folder == null ? null : reportFileFor(folder, username);
-        if (report == null) {
-            sendJson(exchange, 404, "{\"error\":\"No report for this student yet. Run grading first.\"}");
+        String username = HttpResponses.query(exchange).getOrDefault("username", "");
+        Optional<Path> report = folder == null
+                ? Optional.empty()
+                : AttemptReportWriter.studentReportOf(folder, username);
+        if (report.isEmpty()) {
+            sendError(exchange, HTTP_NOT_FOUND, "No report for this student yet. Run grading first.");
             return;
         }
-        String type = report.getFileName().toString().endsWith(".pdf")
-                ? "application/pdf"
-                : "text/plain; charset=UTF-8";
-        sendFile(exchange, type, Files.readAllBytes(report), report.getFileName().toString());
-    }
-
-    /**
-     * Finds the file AttemptReportWriter saved for a username: a PDF, or a .txt if the PDF could not be laid out.
-     * The name is built the same way the writer builds it, and the result must stay inside students/.
-     */
-    private static Path reportFileFor(Path folder, String username) {
-        String base = username.replaceAll("[^A-Za-z0-9._-]", "_");
-        Path students = folder.resolve("students").normalize();
-        for (String extension : List.of(".pdf", ".txt")) {
-            Path candidate = students.resolve(base + extension).normalize();
-            if (candidate.startsWith(students) && Files.isRegularFile(candidate)) {
-                return candidate;
-            }
-        }
-        return null;
+        String fileName = report.get().getFileName().toString();
+        String type = fileName.endsWith(".pdf") ? "application/pdf" : "text/plain; charset=UTF-8";
+        sendFile(exchange, type, Files.readAllBytes(report.get()), fileName);
     }
 
     /** POST /api/scoresheet?name=...: the body is the score sheet CSV the user chose. */
     private synchronized void uploadScoreSheet(HttpExchange exchange) throws IOException {
         if (grading.get()) {
-            sendJson(exchange, 409, "{\"error\":\"Wait until grading has finished.\"}");
+            sendError(exchange, HTTP_CONFLICT, GRADING_RUNNING);
             return;
         }
-        byte[] body = exchange.getRequestBody().readAllBytes();
-        String name = queryOf(exchange).getOrDefault("name", "score-sheet.csv");
-        Path temporary = Files.createTempFile(uploads, "score-sheet-", ".csv");
+        String name = HttpResponses.query(exchange).getOrDefault("name", "score-sheet.csv");
         try {
-            Files.write(temporary, body);
-            uploadedSheet = ScoreSheet.load(temporary); // validates the structure and keeps it in memory
-            uploadedSheetName = name;
+            scoreSheet = UploadedScoreSheet.load(exchange.getRequestBody().readAllBytes(), name, uploads);
         } catch (IOException exception) {
-            uploadedSheet = null;
-            uploadedSheetName = "";
-            sendJson(exchange, 400, "{\"error\":" + Json.quote(Messages.describe(exception)) + "}");
+            scoreSheet = null;
+            sendError(exchange, HTTP_BAD_REQUEST, Messages.describe(exception));
             return;
-        } finally {
-            Files.deleteIfExists(temporary);
         }
-        sendJson(exchange, 200, "{\"ok\":true}");
+        sendJson(exchange, "{\"ok\":true}");
     }
 
     /** GET /api/scoresheet/preview: what filling the uploaded sheet would change, as JSON. */
     private void scoreSheetPreview(HttpExchange exchange) throws IOException {
-        ScoreSheet sheet = uploadedSheet;
-        if (sheet == null) {
-            sendJson(exchange, 200, "{\"loaded\":false}");
-            return;
-        }
-        ScoreSheetPreview preview = scoreSheetUpdater.preview(sheet, currentScores());
-        String entries = preview.entries().stream()
-                .map(entry -> "{\"username\":" + Json.quote(entry.username())
-                        + ",\"previous\":" + Json.quote(entry.previousScore())
-                        + ",\"score\":" + Json.quote(entry.newScore()) + "}")
-                .collect(Collectors.joining(",", "[", "]"));
-        sendJson(exchange, 200, "{\"loaded\":true"
-                + ",\"graded\":" + (latestAttempt != null)
-                + ",\"name\":" + Json.quote(uploadedSheetName)
-                + ",\"sheetRows\":" + sheet.rowCount()
-                + ",\"entries\":" + entries
-                + ",\"notInSheet\":" + quoteAll(preview.notInSheet())
-                + ",\"noSubmission\":" + quoteAll(preview.noSubmission())
-                + "}");
+        UploadedScoreSheet sheet = scoreSheet;
+        sendJson(exchange, sheet == null
+                ? "{\"loaded\":false}"
+                : sheet.previewJson(scoreSheetUpdater, currentScores(), latestAttempt != null));
     }
 
     /** GET /api/scoresheet/download: the uploaded sheet with this run's grades filled in. */
     private void downloadScoreSheet(HttpExchange exchange) throws IOException {
+        UploadedScoreSheet sheet = scoreSheet;
         if (grading.get()) {
-            sendJson(exchange, 409, "{\"error\":\"Wait until grading has finished.\"}");
-            return;
+            sendError(exchange, HTTP_CONFLICT, GRADING_RUNNING);
+        } else if (sheet == null) {
+            sendError(exchange, HTTP_NOT_FOUND, "Upload a score sheet first.");
+        } else if (latestAttempt == null) {
+            sendError(exchange, HTTP_CONFLICT, "Run grading first, then download the filled score sheet.");
+        } else {
+            sendFile(exchange, "text/csv; charset=UTF-8", sheet.filledCsv(scoreSheetUpdater, currentScores()),
+                    sheet.downloadName());
         }
-        ScoreSheet sheet = uploadedSheet;
-        if (sheet == null) {
-            sendJson(exchange, 404, "{\"error\":\"Upload a score sheet first.\"}");
-            return;
-        }
-        if (latestAttempt == null) {
-            sendJson(exchange, 409, "{\"error\":\"Run grading first, then download the filled score sheet.\"}");
-            return;
-        }
-        ScoreSheetPreview preview = scoreSheetUpdater.preview(sheet, currentScores());
-        byte[] csv = scoreSheetUpdater.filledContent(preview);
-        sendFile(exchange, "text/csv; charset=UTF-8", csv,
-                "graded-" + uploadedSheetName.replaceAll("[^A-Za-z0-9._-]", "_"));
     }
 
     /** The progress JSON, plus the flags the page needs to know what is ready. */
@@ -395,7 +352,7 @@ public final class WebApplication {
         return "{\"testersReady\":" + testersReady
                 + ",\"submissionsReady\":" + submissionsReady
                 + ",\"reportsReady\":" + (latestAttemptFolder != null)
-                + ",\"scoreSheetName\":" + Json.quote(uploadedSheet == null ? "" : uploadedSheetName)
+                + ",\"scoreSheetName\":" + Json.quote(scoreSheet == null ? "" : scoreSheet.name())
                 + "," + base.substring(1);
     }
 
@@ -413,110 +370,5 @@ public final class WebApplication {
             return new ScoreSummary(List.of());
         }
         return new ScoreSummary(attempt.scores().stream().map(ScoreBreakdown::toStudentScore).toList());
-    }
-
-    // ----- helpers -----
-
-    /** If the upload holds exactly one folder and nothing else, that folder is the real root. */
-    private static Path unwrapSingleFolder(Path folder) throws IOException {
-        try (var stream = Files.list(folder)) {
-            List<Path> list = stream.toList();
-            if (list.size() == 1 && Files.isDirectory(list.get(0))) {
-                return list.get(0);
-            }
-        }
-        return folder;
-    }
-
-    private static Map<String, String> queryOf(HttpExchange exchange) {
-        String query = exchange.getRequestURI().getRawQuery();
-        return parseForm((query == null ? "" : query).getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String messages(List<SubmissionFinding> findings) {
-        return findings.stream()
-                .map(finding -> Json.quote(finding.message()))
-                .collect(Collectors.joining(",", "[", "]"));
-    }
-
-    private static String quoteAll(List<String> values) {
-        return values.stream().map(Json::quote).collect(Collectors.joining(",", "[", "]"));
-    }
-
-    /** Reads "a=1&b=2" into a map, decoding the %20-style escapes. */
-    private static Map<String, String> parseForm(byte[] body) {
-        Map<String, String> values = new HashMap<>();
-        for (String pair : new String(body, StandardCharsets.UTF_8).split("&")) {
-            int equals = pair.indexOf('=');
-            if (equals > 0) {
-                String key = URLDecoder.decode(pair.substring(0, equals), StandardCharsets.UTF_8);
-                String value = URLDecoder.decode(pair.substring(equals + 1), StandardCharsets.UTF_8);
-                values.put(key, value);
-            }
-        }
-        return values;
-    }
-
-    /**
-     * Extracts a zip into a folder and returns how many entries it held; 0 means the body was empty
-     * or was not a zip. Refuses entries that would be written outside that folder.
-     */
-    private static int unzip(byte[] zipBytes, Path destination) throws IOException {
-        Path root = destination.toAbsolutePath().normalize();
-        int entries = 0;
-        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
-                entries++;
-                Path target = root.resolve(entry.getName()).normalize();
-                if (!target.startsWith(root)) {
-                    throw new IOException("Unsafe path in the ZIP: " + entry.getName());
-                }
-                if (entry.isDirectory()) {
-                    Files.createDirectories(target);
-                } else {
-                    Files.createDirectories(target.getParent());
-                    Files.copy(zip, target, StandardCopyOption.REPLACE_EXISTING);
-                }
-                zip.closeEntry();
-            }
-        }
-        return entries;
-    }
-
-    private static String page() throws IOException {
-        try (InputStream input = WebApplication.class.getResourceAsStream("/web/index.html")) {
-            if (input == null) {
-                throw new IOException("web/index.html is missing from the build");
-            }
-            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
-        }
-    }
-
-    private static void sendJson(HttpExchange exchange, int status, String json) throws IOException {
-        send(exchange, status, "application/json; charset=UTF-8", json, Map.of());
-    }
-
-    private static void send(HttpExchange exchange, int status, String type, String text,
-            Map<String, String> headers) throws IOException {
-        send(exchange, status, type, text.getBytes(StandardCharsets.UTF_8), headers);
-    }
-
-    private static void send(HttpExchange exchange, int status, String type, byte[] bytes,
-            Map<String, String> headers) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", type);
-        exchange.getResponseHeaders().set("Cache-Control", "no-store");
-        headers.forEach((name, value) -> exchange.getResponseHeaders().set(name, value));
-        exchange.sendResponseHeaders(status, bytes.length);
-        try (OutputStream out = exchange.getResponseBody()) {
-            out.write(bytes);
-        }
-    }
-
-    /** Sends a file as a download. */
-    private static void sendFile(HttpExchange exchange, String type, byte[] bytes, String fileName)
-            throws IOException {
-        send(exchange, 200, type, bytes, Map.of(
-                "Content-Disposition", "attachment; filename=\"" + fileName + "\""));
     }
 }

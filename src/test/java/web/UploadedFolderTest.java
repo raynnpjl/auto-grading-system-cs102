@@ -1,0 +1,56 @@
+package web;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Optional;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class UploadedFolderTest {
+
+    @TempDir
+    Path temporary;
+
+    @Test
+    void findsNothingInAnUploadThatIsNotAZip() throws IOException {
+        Optional<Path> folder = UploadedFolder.extract("garbage".getBytes(StandardCharsets.UTF_8), temporary);
+
+        assertTrue(folder.isEmpty());
+    }
+
+    @Test
+    void returnsTheChosenFolderWhenTheZipHoldsOnlyThatFolder() throws IOException {
+        byte[] zip = zipOf("Tester-Files/Q1aTester.java");
+
+        Optional<Path> folder = UploadedFolder.extract(zip, temporary);
+
+        assertEquals(Optional.of(temporary.resolve("Tester-Files")), folder);
+        assertTrue(Files.isRegularFile(folder.get().resolve("Q1aTester.java")));
+    }
+
+    @Test
+    void refusesEntriesThatWouldBeWrittenOutsideTheFolder() throws IOException {
+        byte[] zip = zipOf("../outside.txt");
+
+        assertThrows(IOException.class, () -> UploadedFolder.extract(zip, temporary.resolve("upload")));
+    }
+
+    private static byte[] zipOf(String entryName) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            zip.putNextEntry(new ZipEntry(entryName));
+            zip.write("content".getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return bytes.toByteArray();
+    }
+}

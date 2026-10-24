@@ -161,10 +161,10 @@ public final class MainViewController {
 
         // new
         try {
-            dashboard = new ProgressServer(progress, 8080);
+            dashboard = new ProgressServer(progress, settings.port());
             dashboard.start();
         } catch (IOException exception) {
-            consoleStatus.setText("Dashboard unavailable: port 8080 is already in use");
+            consoleStatus.setText("Dashboard unavailable: port " + settings.port() + " is already in use");
         }
     }
 

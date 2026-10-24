@@ -36,6 +36,7 @@ class GradingSettingsTest {
         assertEquals(Duration.ofSeconds(30), settings.compileTimeout());
         assertEquals(Duration.ofSeconds(5), settings.executionTimeout());
         assertEquals("smu.edu.sg", settings.emailDomain());
+        assertEquals(8080, settings.port());
 
         assertEquals(List.of("Q1a", "Q1b", "Q2a", "Q2b", "Q3"),
                 AssessmentDefinition.QUESTIONS.stream().map(AssessmentDefinition.Question::id).toList());
