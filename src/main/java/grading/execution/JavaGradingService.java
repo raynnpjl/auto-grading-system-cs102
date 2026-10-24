@@ -70,7 +70,10 @@ public final class JavaGradingService {
                 progress);
     }
 
-    /** For callers that don't show live progress; the tracker is updated but never read. */
+    /**
+     * For callers that don't show live progress; the tracker is updated but never
+     * read.
+     */
     JavaGradingService(Duration compilationTimeout, Duration executionTimeout, int parallelStudents,
             Consumer<String> log, ProcessRunner runner) {
         this(compilationTimeout, executionTimeout, parallelStudents, log, runner, new ProgressTracker());
@@ -169,29 +172,29 @@ public final class JavaGradingService {
                     + " before grading this submission.");
         }
         String username = submission.username();
-log.accept("\n=== Student: " + username + " ===");
+        log.accept("\n=== Student: " + username + " ===");
 
-progress.studentStarted(username);
+        progress.studentStarted(username);
 
-List<QuestionGradingResult> questions = new ArrayList<>();
-for (var question : AssessmentDefinition.QUESTIONS) {
-    if (Thread.currentThread().isInterrupted()) {
-        throw new InterruptedException("Grading cancelled.");
-    }
-    progress.stepStarted(username, "compiling " + question.id());
-    QuestionGradingResult questionResult = gradeSubmittedQuestion(submission, question, testers);
-    questions.add(questionResult);
-    progress.questionFinished(username, question.id(), questionResult.score());
-}
+        List<QuestionGradingResult> questions = new ArrayList<>();
+        for (var question : AssessmentDefinition.QUESTIONS) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Grading cancelled.");
+            }
+            progress.stepStarted(username, "compiling " + question.id());
+            QuestionGradingResult questionResult = gradeSubmittedQuestion(submission, question, testers);
+            questions.add(questionResult);
+            progress.questionFinished(username, question.id(), questionResult.score());
+        }
 
-boolean hasErrors = questions.stream()
-        .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
-progress.studentFinished(username, hasErrors);
+        boolean hasErrors = questions.stream()
+                .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
+        progress.studentFinished(username, hasErrors);
 
-StudentGradingResult result = new StudentGradingResult(username, questions);
-log.accept("[" + username + "] Question scores: " + result.questionScores()
-        + " | Total: " + result.totalScore());
-return result;
+        StudentGradingResult result = new StudentGradingResult(username, questions);
+        log.accept("[" + username + "] Question scores: " + result.questionScores()
+                + " | Total: " + result.totalScore());
+        return result;
     }
 
     private static String statusOf(SubmissionValidationResult submission, List<QuestionGradingResult> questions) {
@@ -285,3 +288,4 @@ return result;
         return timeout;
     }
 }
+    

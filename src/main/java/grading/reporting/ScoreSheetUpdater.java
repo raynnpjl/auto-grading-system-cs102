@@ -124,6 +124,13 @@ public final class ScoreSheetUpdater {
         }
     }
 
+    
+    public byte[] filledContent(ScoreSheetPreview preview) {
+        Map<Integer, String> numerators = new HashMap<>();
+        preview.entries().forEach(entry -> numerators.put(entry.row(), entry.newScore()));
+        return preview.sheet().withNumerators(numerators);
+    }
+
     /** The saved file, its backup, and the sheet as re-read after writing. */
     public record Result(Path sheet, Path backup, int scoresWritten, ScoreSheet updatedSheet) {
     }
