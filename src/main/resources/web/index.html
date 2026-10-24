@@ -21,7 +21,6 @@
           <div class="card-body">
             <h6 class="fw-bold">1. Tester files</h6>
             <p class="small text-muted mb-2">Select the Tester-Files folder.</p>
-            <!-- Updated input with webkitdirectory to allow folder selection -->
             <input class="form-control form-control-sm mb-2" type="file" webkitdirectory @change="handleFolderSelect($event, 'testerFiles')">
             <button class="btn btn-sm btn-outline-primary" :disabled="!testerFiles || testerFiles.length === 0 || uploadingTesters" @click="uploadTesters">
               {{ uploadingTesters ? 'Uploading...' : 'Upload' }}
@@ -37,8 +36,7 @@
         <div class="card shadow-sm h-100">
           <div class="card-body">
             <h6 class="fw-bold">2. Student submissions</h6>
-            <p class="small text-muted mb-2">Select the folder containing student submissions (ZIPs or subfolders).</p>
-            <!-- Updated input with webkitdirectory to allow folder selection -->
+            <p class="small text-muted mb-2">Select the folder containing student submissions.</p>
             <input class="form-control form-control-sm mb-2" type="file" webkitdirectory @change="handleFolderSelect($event, 'submissionFiles')">
             <button class="btn btn-sm btn-outline-primary" :disabled="!submissionFiles || submissionFiles.length === 0 || uploadingSubmissions" @click="uploadSubmissions">
               {{ uploadingSubmissions ? 'Uploading...' : 'Upload' }}
@@ -51,16 +49,16 @@
       </div>
     </div>
 
-    <!-- Run, progress and download -->
+    <!-- Run, progress and report download -->
     <div class="card shadow-sm mb-3">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
           <h5 class="mb-0">{{ headline }}</h5>
-          <div class="d-flex gap-2 align-items-center">
+          <div class="d-flex gap-2 align-items-center flex-wrap">
             <span class="text-muted me-2">{{ elapsed }} elapsed</span>
             <button class="btn btn-primary" :disabled="!canRun" @click="runGrading">Run grading</button>
-            <a class="btn btn-outline-success" :class="{ disabled: !hasResults }" href="/api/export.csv">
-              Download CSV
+            <a class="btn btn-outline-success" :class="{ disabled: !state.reportsReady }" href="/api/reports/zip">
+              Download all reports (ZIP)
             </a>
           </div>
         </div>
@@ -69,6 +67,44 @@
         </div>
         <div v-if="message" class="alert alert-danger mt-3 mb-0 py-2">{{ message }}</div>
         <div v-if="connectionError" class="alert alert-warning mt-3 mb-0 py-2">{{ connectionError }}</div>
+      </div>
+    </div>
+
+    <!-- Step 3: score sheet -->
+    <div class="card shadow-sm mb-3">
+      <div class="card-body">
+        <h6 class="fw-bold">3. Score sheet</h6>
+        <p class="small text-muted mb-2">
+          Choose your score sheet CSV (e.g. IS442-ScoreSheet.csv). Its columns and rows are kept;
+          only the final grade numerator of each matched student is filled in.
+        </p>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <input class="form-control form-control-sm" style="max-width: 380px" type="file"
+            accept=".csv,text/csv" @change="uploadScoreSheet($event)">
+          <a class="btn btn-sm btn-success" :class="{ disabled: !canDownloadSheet }" href="/api/scoresheet/download">
+            Download filled CSV
+          </a>
+        </div>
+        <div class="small mt-2" :class="sheetError ? 'text-danger' : 'text-muted'">{{ sheetStatus }}</div>
+        <div class="small mt-1 text-muted" v-if="sheetSummary">{{ sheetSummary }}</div>
+        <div class="table-responsive mt-2" v-if="preview && preview.graded && preview.entries.length">
+          <table class="table table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Current</th>
+                <th>New</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="e in preview.entries" :key="e.username">
+                <td class="font-monospace small">{{ e.username }}</td>
+                <td class="small">{{ e.previous || '–' }}</td>
+                <td class="small fw-semibold">{{ e.score }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -125,6 +161,7 @@
               <th>Status</th>
               <th v-for="q in state.questions" :key="q" class="text-center">{{ q }}</th>
               <th class="text-end">Total</th>
+              <th class="text-end">Report</th>
             </tr>
           </thead>
           <tbody>
@@ -133,9 +170,14 @@
               <td><span class="badge" :class="badgeClass(s.status)">{{ s.status }}</span></td>
               <td v-for="q in state.questions" :key="q" class="text-center">{{ cell(s, q) }}</td>
               <td class="text-end fw-semibold">{{ s.finished ? s.total : '–' }}</td>
+              <td class="text-end">
+                <a v-if="state.reportsReady && s.finished" class="small"
+                  :href="'/api/reports/student?username=' + encodeURIComponent(s.username)">PDF</a>
+                <span v-else class="text-muted small">–</span>
+              </td>
             </tr>
             <tr v-if="state.students.length === 0">
-              <td :colspan="state.questions.length + 3" class="text-center text-muted py-4">
+              <td :colspan="state.questions.length + 4" class="text-center text-muted py-4">
                 No submissions yet. Upload the files above.
               </td>
             </tr>
@@ -161,6 +203,7 @@
         const state = ref({
           running: false, done: 0, total: 0, elapsedSeconds: 0,
           testersReady: false, submissionsReady: false,
+          reportsReady: false, scoreSheetName: '',
           currentStudent: '', currentStep: '',
           questions: [], students: [], activity: [],
         });
@@ -170,9 +213,12 @@
         const uploadingSubmissions = ref(false);
         const testerMessage = ref('');
         const submissionMessage = ref('');
-        const message = ref('');          
-        const connectionError = ref('');  
-        const identityForms = ref({});    
+        const message = ref('');
+        const connectionError = ref('');
+        const identityForms = ref({});
+        const preview = ref(null);
+        const sheetStatus = ref('');
+        const sheetError = ref(false);
         let timerId = null;
 
         function handleFolderSelect(event, targetRef) {
@@ -210,8 +256,7 @@
             const zipBlob = await createZipFromFiles(testerFiles.value);
             testerMessage.value = 'Uploading...';
             const data = await postZip('/api/testers', zipBlob);
-            if (!data.valid) testerMessage.value = data.messages.join(' ');
-            else testerMessage.value = '';
+            testerMessage.value = data.valid ? '' : data.messages.join(' ');
           } catch (error) {
             testerMessage.value = error.message;
           } finally {
@@ -236,6 +281,34 @@
           await refresh();
         }
 
+        // Sends the chosen score sheet as the raw request body; the server keeps it in memory.
+        async function uploadScoreSheet(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+          sheetError.value = false;
+          sheetStatus.value = `Uploading ${file.name}...`;
+          try {
+            const response = await fetch('/api/scoresheet?name=' + encodeURIComponent(file.name), {
+              method: 'POST',
+              body: file,
+              headers: { 'Content-Type': 'text/csv' }
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Upload failed');
+            sheetStatus.value = `${file.name} loaded. The original file is not changed.`;
+          } catch (error) {
+            sheetError.value = true;
+            sheetStatus.value = error.message;
+          }
+          event.target.value = '';
+          await refresh();
+        }
+
+        async function loadPreview() {
+          const response = await fetch('/api/scoresheet/preview', { cache: 'no-store' });
+          preview.value = await response.json();
+        }
+
         async function refresh() {
           try {
             const response = await fetch('/api/progress', { cache: 'no-store' });
@@ -245,6 +318,11 @@
               if (s.status === 'skipped' && !identityForms.value[s.username]) {
                 identityForms.value[s.username] = { username: '', name: '', email: '' };
               }
+            }
+            if (state.value.scoreSheetName && !state.value.running) {
+              await loadPreview();
+            } else {
+              preview.value = null;
             }
           } catch (error) {
             connectionError.value = 'Cannot reach the grader. Is the application still running?';
@@ -285,6 +363,19 @@
 
         const canRun = computed(() =>
           state.value.testersReady && state.value.submissionsReady && !state.value.running);
+
+        const canDownloadSheet = computed(() =>
+          !!state.value.scoreSheetName && state.value.reportsReady && !state.value.running);
+
+        const sheetSummary = computed(() => {
+          const p = preview.value;
+          if (!p || !p.loaded) return '';
+          if (!p.graded) return 'Run grading, then download the filled sheet.';
+          let text = `Will fill ${p.entries.length} of ${p.sheetRows} students in the sheet.`;
+          if (p.noSubmission.length) text += ` Left unchanged: ${p.noSubmission.join(', ')}.`;
+          if (p.notInSheet.length) text += ` Graded but not in the sheet (not written): ${p.notInSheet.join(', ')}.`;
+          return text;
+        });
 
         const headline = computed(() => {
           if (state.value.running) {
@@ -330,9 +421,11 @@
         return {
           state, testerFiles, submissionFiles, uploadingTesters, uploadingSubmissions,
           testerMessage, submissionMessage, message, connectionError, identityForms,
-          handleFolderSelect, uploadTesters, uploadSubmissions, confirmIdentity, runGrading,
-          percent, elapsed, skipped, hasResults, canRun, headline, cards,
-          cell, badgeClass,
+          preview, sheetStatus, sheetError,
+          handleFolderSelect, uploadTesters, uploadSubmissions, uploadScoreSheet,
+          confirmIdentity, runGrading,
+          percent, elapsed, skipped, hasResults, canRun, canDownloadSheet, sheetSummary,
+          headline, cards, cell, badgeClass,
         };
       },
     }).mount('#app');
