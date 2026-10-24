@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 
@@ -52,7 +53,7 @@ public final class ProgressServer {
     private static void send(HttpExchange exchange, String type, byte[] body) throws IOException {
         exchange.getResponseHeaders().set("Content-Type", type + "; charset=UTF-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
-        exchange.sendResponseHeaders(200, body.length);
+        exchange.sendResponseHeaders(HttpURLConnection.HTTP_OK, body.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(body);
         }

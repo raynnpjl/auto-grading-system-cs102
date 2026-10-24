@@ -17,6 +17,7 @@ import java.time.Duration;
  * @param maxTesterFileBytes largest tester source file that is inspected
  * @param workspaceFolder    folder under the temporary directory that holds normalized copies
  * @param maxLogCharacters   process output kept in the on-screen log
+ * @param port               port of the web page on this computer
  * @param style              style checking and scoring
  * @param penalties          penalties deducted from the tester marks
  * @param reportsFolder      folder that receives one sub-folder of reports per grading attempt
@@ -33,6 +34,7 @@ public record GradingSettings(
         long maxTesterFileBytes,
         String workspaceFolder,
         int maxLogCharacters,
+        int port,
         StyleSettings style,
         PenaltySettings penalties,
         Path reportsFolder) {
@@ -57,6 +59,7 @@ public record GradingSettings(
                 file.positiveNumber("tester.max-file-bytes"),
                 file.text("workspace.folder"),
                 Math.toIntExact(file.positiveNumber("ui.max-log-characters")),
+                Math.toIntExact(file.positiveNumber("ui.port")),
                 new StyleSettings(
                         Path.of(file.text("style.checkstyle-config")),
                         Path.of(file.text("style.rules")),

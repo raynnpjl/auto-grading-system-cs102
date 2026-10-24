@@ -36,10 +36,26 @@ final class PdfReportRenderer {
     private static final float MIN_COLUMN = 36;
     private static final float GREY_FILL = 0.93f;
     private static final float GRID_GREY = 0.6f;
+    private static final float GRID_LINE_WIDTH = 0.4f;
     private static final float FOOTER_GREY = 0.45f;
     private static final float FOOTER_SIZE = 7.5f;
     private static final float LEADING = 1.3f;
     private static final float KEEP_WITH_HEADING = 60;
+    // Font sizes and the space above each heading level (#, ## and ###).
+    private static final float TITLE_SIZE = 16;
+    private static final float TITLE_SPACE = 4;
+    private static final float SECTION_SIZE = 13;
+    private static final float SECTION_SPACE = 10;
+    private static final float SUBSECTION_SIZE = 11;
+    private static final float SUBSECTION_SPACE = 6;
+    // Vertical gaps, as fractions of the text size: a blank line or code block, below a heading, below a table.
+    private static final float HALF_LINE = 0.5f;
+    private static final float HEADING_GAP = 0.3f;
+    private static final float TABLE_GAP = 0.6f;
+    // The bullet sits this far into the indent before the bullet's text.
+    private static final float BULLET_OFFSET = 0.75f;
+    // PDFBox measures glyph widths in thousandths of the font size.
+    private static final float GLYPH_UNITS = 1000;
     // PDFBox indexes the system fonts the first time it creates a font and logs a warning for every
     // font it cannot read; those warnings say nothing about the report, so only errors are shown.
     private static final Logger PDFBOX_LOG = Logger.getLogger("org.apache.pdfbox");
@@ -98,17 +114,17 @@ final class PdfReportRenderer {
                 table(rows);
                 continue;
             } else if (line.startsWith("### ")) {
-                heading(line.substring(4), 11, 6);
+                heading(line.substring(4), SUBSECTION_SIZE, SUBSECTION_SPACE);
             } else if (line.startsWith("## ")) {
-                heading(line.substring(3), 13, 10);
+                heading(line.substring(3), SECTION_SIZE, SECTION_SPACE);
             } else if (line.startsWith("# ")) {
-                heading(line.substring(2), 16, 4);
+                heading(line.substring(2), TITLE_SIZE, TITLE_SPACE);
             } else if (line.startsWith("  - ")) {
                 bullet(line.substring(4), 2 * BULLET_INDENT);
             } else if (line.startsWith("- ")) {
                 bullet(line.substring(2), BULLET_INDENT);
             } else if (line.isBlank()) {
-                y -= BODY_SIZE * 0.5f;
+                y -= BODY_SIZE * HALF_LINE;
             } else {
                 paragraph.append(paragraph.isEmpty() ? "" : " ").append(line.strip());
             }
@@ -134,13 +150,13 @@ final class PdfReportRenderer {
         for (List<Run> line : lines) {
             drawLine(line, MARGIN, size);
         }
-        y -= size * 0.3f;
+        y -= size * HEADING_GAP;
     }
 
     private void bullet(String text, float indent) throws IOException {
         List<List<Run>> lines = wrap(runs(text, regular), WIDTH - indent, BODY_SIZE);
         ensureSpace(BODY_SIZE * LEADING);
-        drawText(List.of(new Run("•", regular)), MARGIN + indent - BULLET_INDENT * 0.75f, y - BODY_SIZE,
+        drawText(List.of(new Run("•", regular)), MARGIN + indent - BULLET_INDENT * BULLET_OFFSET, y - BODY_SIZE,
                 BODY_SIZE);
         for (List<Run> line : lines) {
             drawLine(line, MARGIN + indent, BODY_SIZE);
@@ -149,7 +165,7 @@ final class PdfReportRenderer {
 
     private void codeBlock(List<String> code) throws IOException {
         List<String> wrapped = new ArrayList<>();
-        float charWidth = mono.getStringWidth("M") / 1000 * CODE_SIZE;
+        float charWidth = mono.getStringWidth("M") / GLYPH_UNITS * CODE_SIZE;
         int perLine = Math.max(1, (int) ((WIDTH - 2 * CELL_PADDING) / charWidth));
         for (String line : code) {
             String text = printableText(line.replace("\t", "    "), mono);
@@ -165,7 +181,7 @@ final class PdfReportRenderer {
             drawText(List.of(new Run(line, mono)), MARGIN + CELL_PADDING, y - CODE_SIZE, CODE_SIZE);
             y -= lineHeight;
         }
-        y -= BODY_SIZE * 0.5f;
+        y -= BODY_SIZE * HALF_LINE;
     }
 
     private void table(List<String> rows) throws IOException {
@@ -193,7 +209,7 @@ final class PdfReportRenderer {
             }
             drawRow(row, widths, false);
         }
-        y -= BODY_SIZE * 0.6f;
+        y -= BODY_SIZE * TABLE_GAP;
     }
 
     private void drawRow(List<String> row, float[] widths, boolean header) throws IOException {
@@ -247,7 +263,7 @@ final class PdfReportRenderer {
                     natural[column] = Math.max(natural[column], width(runs, TABLE_SIZE) + 2 * CELL_PADDING);
                     for (Run run : runs) {
                         for (String word : run.text().split(" ")) {
-                            float wordWidth = run.font().getStringWidth(word) / 1000 * TABLE_SIZE + 2 * CELL_PADDING;
+                            float wordWidth = run.font().getStringWidth(word) / GLYPH_UNITS * TABLE_SIZE + 2 * CELL_PADDING;
                             minimum[column] = Math.max(minimum[column], Math.min(wordWidth, WIDTH / 4));
                         }
                     }
@@ -358,19 +374,19 @@ final class PdfReportRenderer {
         float used = 0;
         for (Run run : runs) {
             for (String piece : run.text().split("(?<= )")) {
-                float pieceWidth = run.font().getStringWidth(piece) / 1000 * size;
+                float pieceWidth = run.font().getStringWidth(piece) / GLYPH_UNITS * size;
                 if (used + pieceWidth > width && used > 0) {
                     lines.add(line);
                     line = new ArrayList<>();
                     used = 0;
                     piece = piece.stripLeading();
-                    pieceWidth = run.font().getStringWidth(piece) / 1000 * size;
+                    pieceWidth = run.font().getStringWidth(piece) / GLYPH_UNITS * size;
                 }
                 while (pieceWidth > width && piece.length() > 1) {
                     int fit = fitting(piece, run.font(), size, width);
                     lines.add(List.of(new Run(piece.substring(0, fit), run.font())));
                     piece = piece.substring(fit);
-                    pieceWidth = run.font().getStringWidth(piece) / 1000 * size;
+                    pieceWidth = run.font().getStringWidth(piece) / GLYPH_UNITS * size;
                 }
                 line.add(new Run(piece, run.font()));
                 used += pieceWidth;
@@ -384,7 +400,7 @@ final class PdfReportRenderer {
 
     private static int fitting(String text, PDFont font, float size, float width) throws IOException {
         int fit = 1;
-        while (fit < text.length() && font.getStringWidth(text.substring(0, fit + 1)) / 1000 * size <= width) {
+        while (fit < text.length() && font.getStringWidth(text.substring(0, fit + 1)) / GLYPH_UNITS * size <= width) {
             fit++;
         }
         return fit;
@@ -393,7 +409,7 @@ final class PdfReportRenderer {
     private static float width(List<Run> runs, float size) throws IOException {
         float width = 0;
         for (Run run : runs) {
-            width += run.font().getStringWidth(run.text()) / 1000 * size;
+            width += run.font().getStringWidth(run.text()) / GLYPH_UNITS * size;
         }
         return width;
     }
@@ -415,7 +431,7 @@ final class PdfReportRenderer {
             content.newLineAtOffset(cursor, baseline);
             content.showText(run.text());
             content.endText();
-            cursor += run.font().getStringWidth(run.text()) / 1000 * size;
+            cursor += run.font().getStringWidth(run.text()) / GLYPH_UNITS * size;
         }
     }
 
@@ -428,7 +444,7 @@ final class PdfReportRenderer {
 
     private void grid(float[] widths, float height) throws IOException {
         content.setStrokingColor(GRID_GREY, GRID_GREY, GRID_GREY);
-        content.setLineWidth(0.4f);
+        content.setLineWidth(GRID_LINE_WIDTH);
         content.addRect(MARGIN, y - height, sum(widths), height);
         float x = MARGIN;
         for (int column = 0; column < widths.length - 1; column++) {
