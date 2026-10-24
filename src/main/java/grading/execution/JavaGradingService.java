@@ -70,6 +70,12 @@ public final class JavaGradingService {
                 progress);
     }
 
+    /** For callers that don't show live progress; the tracker is updated but never read. */
+    JavaGradingService(Duration compilationTimeout, Duration executionTimeout, int parallelStudents,
+            Consumer<String> log, ProcessRunner runner) {
+        this(compilationTimeout, executionTimeout, parallelStudents, log, runner, new ProgressTracker());
+    }
+
     // edited by xuan
     JavaGradingService(Duration compilationTimeout, Duration executionTimeout, int parallelStudents,
             Consumer<String> log, ProcessRunner runner, ProgressTracker progress) {
