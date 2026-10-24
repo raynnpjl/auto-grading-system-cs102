@@ -1,6 +1,7 @@
 package grading.progress;
 
 import grading.assessment.AssessmentDefinition;
+import grading.common.Json;
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionFinding;
 import grading.submission.SubmissionValidationResult;
@@ -142,13 +143,13 @@ public final class ProgressTracker {
                 + ",\"done\":" + done
                 + ",\"total\":" + rows.size()
                 + ",\"elapsedSeconds\":" + elapsedSeconds()
-                + ",\"currentStudent\":" + quote(currentStudent)
-                + ",\"currentStep\":" + quote(currentStep)
-                + ",\"questions\":" + questionIds.stream().map(ProgressTracker::quote)
+                + ",\"currentStudent\":" + Json.quote(currentStudent)
+                + ",\"currentStep\":" + Json.quote(currentStep)
+                + ",\"questions\":" + questionIds.stream().map(Json::quote)
                         .collect(Collectors.joining(",", "[", "]"))
                 + ",\"students\":" + rows.values().stream().map(Row::toJson)
                         .collect(Collectors.joining(",", "[", "]"))
-                + ",\"activity\":" + activity.stream().map(ProgressTracker::quote)
+                + ",\"activity\":" + activity.stream().map(Json::quote)
                         .collect(Collectors.joining(",", "[", "]"))
                 + "}";
     }
@@ -163,14 +164,6 @@ public final class ProgressTracker {
         }
         Instant end = endedAt != null ? endedAt : Instant.now();
         return Duration.between(startedAt, end).getSeconds();
-    }
-
-    /** Wraps text in quotes and escapes the characters JSON does not allow inside quotes. */
-    static String quote(String text) {
-        return "\"" + text.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "") + "\"";
     }
 
     /** One student's row in the table. */
@@ -189,14 +182,14 @@ public final class ProgressTracker {
         String toJson() {
             double total = scores.values().stream().mapToDouble(Double::doubleValue).sum();
             return "{"
-                    + "\"username\":" + quote(username)
-                    + ",\"status\":" + quote(status)
+                    + "\"username\":" + Json.quote(username)
+                    + ",\"status\":" + Json.quote(status)
                     + ",\"finished\":" + finished
                     + ",\"scores\":" + scores.entrySet().stream()
-                            .map(entry -> quote(entry.getKey()) + ":" + entry.getValue())
+                            .map(entry -> Json.quote(entry.getKey()) + ":" + entry.getValue())
                             .collect(Collectors.joining(",", "{", "}"))
                     + ",\"total\":" + total
-                    + ",\"issues\":" + issues.stream().map(ProgressTracker::quote)
+                    + ",\"issues\":" + issues.stream().map(Json::quote)
                             .collect(Collectors.joining(",", "[", "]"))
                     + "}";
         }
