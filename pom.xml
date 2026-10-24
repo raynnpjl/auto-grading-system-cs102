@@ -78,7 +78,8 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
-                    <mainClass>ui.AutoGradingApplication</mainClass>
+                    <!-- <mainClass>ui.AutoGradingApplication</mainClass> -->
+                    <mainClass>web.WebApplication</mainClass>
                 </configuration>
             </plugin>
         </plugins>

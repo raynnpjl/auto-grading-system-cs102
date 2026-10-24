@@ -1,0 +1,18 @@
+package grading.common;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import org.junit.jupiter.api.Test;
+
+class JsonTest {
+
+    @Test
+    void escapesQuotesBackslashesAndLineBreaks() {
+        assertEquals("\"say \\\"hi\\\" C:\\\\temp\\r\\n\"", Json.quote("say \"hi\" C:\\temp\r\n"));
+    }
+
+    @Test
+    void escapesTabsAndOtherControlCharactersFromProcessOutput() {
+        assertEquals("\"\\tat Q1a.main(Q1a.java:5)\\u0007\"", Json.quote("\tat Q1a.main(Q1a.java:5)\u0007"));
+    }
+}

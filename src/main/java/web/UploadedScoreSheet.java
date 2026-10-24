@@ -1,0 +1,65 @@
+package web;
+
+import grading.common.Json;
+import grading.reporting.ScoreSheet;
+import grading.reporting.ScoreSheetPreview;
+import grading.reporting.ScoreSheetUpdater;
+import grading.scoring.ScoreSummary;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * The score sheet the user uploaded, kept in memory with the name it had. The uploaded file itself
+ * is never modified; filling it produces a new CSV for download.
+ *
+ * @param sheet the parsed score sheet
+ * @param name  the file name the user chose, shown on the page
+ */
+record UploadedScoreSheet(ScoreSheet sheet, String name) {
+
+    private static final String UNSAFE_FILE_NAME_CHARACTERS = "[^A-Za-z0-9._-]";
+
+    /**
+     * Reads an uploaded score sheet.
+     *
+     * @throws IOException if the upload is not a score sheet exported from the LMS
+     */
+    static UploadedScoreSheet load(byte[] body, String name, Path temporaryFolder) throws IOException {
+        Path temporary = Files.createTempFile(temporaryFolder, "score-sheet-", ".csv");
+        try {
+            Files.write(temporary, body);
+            return new UploadedScoreSheet(ScoreSheet.load(temporary), name);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    /** What filling the sheet with these scores would change, as the JSON the page shows. */
+    String previewJson(ScoreSheetUpdater updater, ScoreSummary scores, boolean graded) {
+        ScoreSheetPreview preview = updater.preview(sheet, scores);
+        String entries = Json.array(preview.entries().stream()
+                .map(entry -> "{\"username\":" + Json.quote(entry.username())
+                        + ",\"previous\":" + Json.quote(entry.previousScore())
+                        + ",\"score\":" + Json.quote(entry.newScore()) + "}")
+                .toList());
+        return "{\"loaded\":true"
+                + ",\"graded\":" + graded
+                + ",\"name\":" + Json.quote(name)
+                + ",\"sheetRows\":" + sheet.rowCount()
+                + ",\"entries\":" + entries
+                + ",\"notInSheet\":" + Json.strings(preview.notInSheet())
+                + ",\"noSubmission\":" + Json.strings(preview.noSubmission())
+                + "}";
+    }
+
+    /** The sheet's CSV with each matched student's final grade numerator filled in. */
+    byte[] filledCsv(ScoreSheetUpdater updater, ScoreSummary scores) {
+        return updater.filledContent(updater.preview(sheet, scores));
+    }
+
+    /** The name the filled sheet is downloaded as. */
+    String downloadName() {
+        return "graded-" + name.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, "_");
+    }
+}

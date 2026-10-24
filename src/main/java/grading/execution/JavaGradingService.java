@@ -3,6 +3,7 @@ package grading.execution;
 import grading.assessment.AssessmentDefinition;
 import grading.assessment.QuestionFiles;
 import grading.config.GradingSettings;
+import grading.progress.ProgressTracker; //added by Xuan
 import grading.submission.SubmissionValidationResult;
 import grading.tester.TesterValidationResult;
 import java.io.IOException;
@@ -15,12 +16,17 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Grades students by compiling each question's official tester together with the student's sources
- * and running it in a separate, time-limited JVM. Each question is graded independently, so a
+ * Grades students by compiling each question's official tester together with
+ * the student's sources
+ * and running it in a separate, time-limited JVM. Each question is graded
+ * independently, so a
  * missing file, compilation error or crash costs only that question.
  *
- * <p>The steps are delegated: {@link TesterCompiler} compiles, {@link TesterRunner} runs,
- * {@link TimeoutRecovery} re-runs a tester whose test case hung, and {@link BatchGrader} grades
+ * <p>
+ * The steps are delegated: {@link TesterCompiler} compiles,
+ * {@link TesterRunner} runs,
+ * {@link TimeoutRecovery} re-runs a tester whose test case hung, and
+ * {@link BatchGrader} grades
  * several students at the same time.
  */
 public final class JavaGradingService {
@@ -33,6 +39,7 @@ public final class JavaGradingService {
     private final TesterCompiler compiler;
     private final TesterRunner testerRunner;
     private final TimeoutRecovery timeoutRecovery;
+    private final ProgressTracker progress; // added by xuan for ui's progress tracking
 
     public JavaGradingService() {
         this(System.out::println);
@@ -53,33 +60,67 @@ public final class JavaGradingService {
                 new BoundedProcessRunner(GradingSettings.current().maxOutputBytes()));
     }
 
+    // edited by xuan
+    public JavaGradingService(Consumer<String> log, ProgressTracker progress) {
+        this(GradingSettings.current().compileTimeout(),
+                GradingSettings.current().executionTimeout(),
+                GradingSettings.current().parallelStudents(),
+                log,
+                new BoundedProcessRunner(GradingSettings.current().maxOutputBytes()),
+                progress);
+    }
+
+    /**
+     * For callers that don't show live progress; the tracker is updated but never
+     * read.
+     */
     JavaGradingService(Duration compilationTimeout, Duration executionTimeout, int parallelStudents,
             Consumer<String> log, ProcessRunner runner) {
+        this(compilationTimeout, executionTimeout, parallelStudents, log, runner, new ProgressTracker());
+    }
+
+    // edited by xuan
+    JavaGradingService(Duration compilationTimeout, Duration executionTimeout, int parallelStudents,
+            Consumer<String> log, ProcessRunner runner, ProgressTracker progress) {
         this.compilationTimeout = requirePositive(compilationTimeout);
         this.executionTimeout = requirePositive(executionTimeout);
         this.parallelStudents = parallelStudents;
         this.log = Objects.requireNonNull(log, "log");
         this.runner = Objects.requireNonNull(runner, "runner");
+        this.progress = Objects.requireNonNull(progress, "progress");
         this.compiler = new TesterCompiler(this.compilationTimeout, runner, log);
         this.testerRunner = new TesterRunner(this.executionTimeout, runner, log);
         this.timeoutRecovery = new TimeoutRecovery(this::compileAndExecute, this.executionTimeout, log);
     }
 
+    private JavaGradingService withLog(Consumer<String> otherLog) {
+        return new JavaGradingService(compilationTimeout, executionTimeout, parallelStudents, otherLog, runner,
+                progress);
+    }
+
     /**
-     * Compiles a tester together with one student's question sources. The caller owns the returned
-     * workspace and must close it, even if compilation fails. Source files are never modified.
+     * Compiles a tester together with one student's question sources. The caller
+     * owns the returned
+     * workspace and must close it, even if compilation fails. Source files are
+     * never modified.
      */
     public CompilationResult compile(QuestionFiles files, Path testerFile)
             throws IOException, InterruptedException {
         return compiler.compile(files, testerFile);
     }
 
-    /** Runs only the tester's main method in a new JVM; does not close the compilation workspace. */
+    /**
+     * Runs only the tester's main method in a new JVM; does not close the
+     * compilation workspace.
+     */
     public QuestionGradingResult execute(CompilationResult compilation) throws IOException, InterruptedException {
         return testerRunner.run(compilation);
     }
 
-    /** Compiles, runs and, after a timeout, recovers one question; temporary files are always removed. */
+    /**
+     * Compiles, runs and, after a timeout, recovers one question; temporary files
+     * are always removed.
+     */
     public QuestionGradingResult gradeQuestion(QuestionFiles files, Path testerFile)
             throws IOException, InterruptedException {
         String questionId = AssessmentDefinition.forTester(testerFile.getFileName().toString()).id();
@@ -93,9 +134,36 @@ public final class JavaGradingService {
     }
 
     /**
-     * Grades every question of one confirmed submission. A missing question scores zero and a
-     * grading failure is recorded against its own question, so one problem never stops the rest.
+     * Grades every question of one confirmed submission. A missing question scores
+     * zero and a
+     * grading failure is recorded against its own question, so one problem never
+     * stops the rest.
      */
+    // public StudentGradingResult gradeStudent(SubmissionValidationResult
+    // submission, TesterValidationResult testers)
+    // throws InterruptedException {
+    // requireValid(testers);
+    // if (!submission.isReadyForGrading()) {
+    // throw new IllegalArgumentException("Confirm the identity of " +
+    // submission.username()
+    // + " before grading this submission.");
+    // }
+    // log.accept("\n=== Student: " + submission.username() + " ===");
+    // List<QuestionGradingResult> questions = new ArrayList<>();
+    // for (var question : AssessmentDefinition.QUESTIONS) {
+    // if (Thread.currentThread().isInterrupted()) {
+    // throw new InterruptedException("Grading cancelled.");
+    // }
+    // questions.add(gradeSubmittedQuestion(submission, question, testers));
+    // }
+    // StudentGradingResult result = new StudentGradingResult(submission.username(),
+    // questions);
+    // log.accept("[" + result.username() + "] Question scores: " +
+    // result.questionScores()
+    // + " | Total: " + result.totalScore());
+    // return result;
+    // }
+
     public StudentGradingResult gradeStudent(SubmissionValidationResult submission, TesterValidationResult testers)
             throws InterruptedException {
         requireValid(testers);
@@ -103,28 +171,52 @@ public final class JavaGradingService {
             throw new IllegalArgumentException("Confirm the identity of " + submission.username()
                     + " before grading this submission.");
         }
-        log.accept("\n=== Student: " + submission.username() + " ===");
+        String username = submission.username();
+        log.accept("\n=== Student: " + username + " ===");
+
+        progress.studentStarted(username);
+
         List<QuestionGradingResult> questions = new ArrayList<>();
         for (var question : AssessmentDefinition.QUESTIONS) {
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedException("Grading cancelled.");
             }
-            questions.add(gradeSubmittedQuestion(submission, question, testers));
+            progress.stepStarted(username, "compiling " + question.id());
+            QuestionGradingResult questionResult = gradeSubmittedQuestion(submission, question, testers);
+            questions.add(questionResult);
+            progress.questionFinished(username, question.id(), questionResult.score());
         }
-        StudentGradingResult result = new StudentGradingResult(submission.username(), questions);
-        log.accept("[" + result.username() + "] Question scores: " + result.questionScores()
+
+        boolean hasErrors = questions.stream()
+                .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
+        progress.studentFinished(username, hasErrors);
+
+        StudentGradingResult result = new StudentGradingResult(username, questions);
+        log.accept("[" + username + "] Question scores: " + result.questionScores()
                 + " | Total: " + result.totalScore());
         return result;
     }
 
+    private static String statusOf(SubmissionValidationResult submission, List<QuestionGradingResult> questions) {
+        boolean problems = questions.stream()
+                .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
+        if (problems) {
+            return "needs-review";
+        }
+        return submission.correctedCount() > 0 ? "auto-fixed" : "graded";
+    }
+
     /**
-     * Grades every submission whose owner is confirmed, several students at a time, and returns the
-     * results in input order; the others are skipped and logged. Interruption cancels the batch
+     * Grades every submission whose owner is confirmed, several students at a time,
+     * and returns the
+     * results in input order; the others are skipped and logged. Interruption
+     * cancels the batch
      * after every running process has been terminated.
      */
     public List<StudentGradingResult> gradeBatch(List<SubmissionValidationResult> submissions,
             TesterValidationResult testers) throws IOException, InterruptedException {
-        // Testers are shared by every student, so check them before calculating any scores.
+        // Testers are shared by every student, so check them before calculating any
+        // scores.
         requireValid(testers);
         requireReadable(testers);
         List<SubmissionValidationResult> gradable = new ArrayList<>();
@@ -140,10 +232,12 @@ public final class JavaGradingService {
                 (submission, studentLog) -> withLog(studentLog).gradeStudent(submission, testers));
     }
 
-    /** The same grader writing its log somewhere else. */
-    private JavaGradingService withLog(Consumer<String> otherLog) {
-        return new JavaGradingService(compilationTimeout, executionTimeout, parallelStudents, otherLog, runner);
-    }
+    // edited by xuan, placed the method above
+    // /** The same grader writing its log somewhere else. */
+    // private JavaGradingService withLog(Consumer<String> otherLog) {
+    // return new JavaGradingService(compilationTimeout, executionTimeout,
+    // parallelStudents, otherLog, runner);
+    // }
 
     private QuestionGradingResult gradeSubmittedQuestion(SubmissionValidationResult submission,
             AssessmentDefinition.Question question, TesterValidationResult testers) throws InterruptedException {
@@ -194,3 +288,4 @@ public final class JavaGradingService {
         return timeout;
     }
 }
+    

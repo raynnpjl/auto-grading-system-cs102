@@ -49,6 +49,16 @@ class SubmissionPreparationServiceTest {
     }
 
     @Test
+    void findsNoSubmissionInAnEmptyFolder() throws IOException {
+        Path batch = Files.createDirectory(tempDirectory.resolve("submissions-upload"));
+
+        List<SubmissionValidationResult> results = service.prepareBatch(
+                batch, tempDirectory.resolve("normalized"));
+
+        assertTrue(results.isEmpty(), results.toString());
+    }
+
+    @Test
     void repairsTemplateWrapperAndMissingHeadersInsideZip() throws IOException {
         Path zip = tempDirectory.resolve("bob.2026.zip");
         Map<String, String> entries = Map.of(
