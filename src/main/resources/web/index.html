@@ -4,149 +4,237 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Auto-grader</title>
+  <title>CS102 Auto Grading System</title>
   <!-- Bootstrap 5.3.3, Vue 3.4.38 and JSZip 3.10.1 are served by the application from web/lib,
        so the page works without an internet connection. JSZip zips the chosen folders for upload. -->
   <link rel="stylesheet" href="/lib/bootstrap.min.css">
   <script src="/lib/vue.global.prod.js"></script>
   <script src="/lib/jszip.min.js"></script>
+  <style>
+    /* A few additions to Bootstrap: the numbered step markers and lined-up numbers in tables. */
+    .step-marker {
+      width: 1.75rem;
+      height: 1.75rem;
+      flex-shrink: 0;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.25rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: 1px solid var(--bs-border-color);
+      background: var(--bs-body-bg);
+      color: var(--bs-secondary-color);
+    }
+
+    .step-current .step-marker {
+      background: var(--bs-primary);
+      border-color: var(--bs-primary);
+      color: #fff;
+    }
+
+    .step-done .step-marker {
+      background: var(--bs-success-bg-subtle);
+      border-color: var(--bs-success-border-subtle);
+      color: var(--bs-success-text-emphasis);
+    }
+
+    .steps li {
+      color: var(--bs-secondary-color);
+    }
+
+    .steps li.step-current {
+      color: var(--bs-body-color);
+      font-weight: 600;
+    }
+
+    .steps li + li::before {
+      content: "";
+      width: 2rem;
+      height: 1px;
+      background: var(--bs-border-color);
+      margin-right: 0.75rem;
+    }
+
+    .numbers {
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Bootstrap sizes badges relative to their parent, which made them too small inside small text. */
+    .badge {
+      font-size: 0.75rem;
+    }
+
+    ::selection {
+      background: var(--bs-primary-bg-subtle);
+    }
+  </style>
 </head>
 
-<body class="bg-light">
+<body class="bg-body-tertiary">
   <main id="app" class="container py-4">
-    <h1 class="fs-3 fw-semibold mb-3">CS102 Auto Grading System</h1>
+    <h1 class="fs-3 fw-semibold mb-1">CS102 Auto Grading System</h1>
+    <p class="text-body-secondary mb-3">Grade a batch of submissions, then fill in the LMS score sheet.</p>
 
-    <!-- Steps 1 and 2: uploads -->
-    <div class="row g-3 mb-3">
+    <!-- Where the user is in the four steps -->
+    <ol class="steps list-unstyled d-flex flex-wrap align-items-center gap-2 mb-4" aria-label="Progress">
+      <li v-for="step in steps" :key="step.number" class="d-flex align-items-center gap-2"
+        :class="'step-' + step.state" :aria-current="step.state === 'current' ? 'step' : null">
+        <span class="step-marker" aria-hidden="true">
+          <svg v-if="step.state === 'done'" width="14" height="14" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8.5l3.2 3.2L13 5" />
+          </svg>
+          <template v-else>{{ step.number }}</template>
+        </span>
+        <span>{{ step.label }}<span class="visually-hidden">{{ step.state === 'done' ? ' (done)' : '' }}</span></span>
+      </li>
+    </ol>
+
+    <!-- Steps 1 and 2: uploads. Choosing a folder uploads it straight away. -->
+    <div class="row g-4 mb-4">
       <div class="col-md-6">
-        <div class="card shadow-sm h-100">
-          <div class="card-body">
-            <h2 class="h6 fw-bold">1. Tester files</h2>
-            <label for="tester-folder" class="form-label small text-muted mb-2">Select the Tester-Files folder.</label>
-            <input id="tester-folder" class="form-control form-control-sm mb-2" type="file" webkitdirectory @change="handleFolderSelect($event, 'testerFiles')">
-            <button class="btn btn-sm btn-outline-primary" :disabled="!testerFiles || testerFiles.length === 0 || uploadingTesters" @click="uploadTesters">
-              {{ uploadingTesters ? 'Uploading...' : 'Upload' }}
-            </button>
-            <div class="small mt-2" aria-live="polite" :class="state.testersReady ? 'text-success' : 'text-muted'">
-              {{ state.testersReady ? 'Testers ready' : testerMessage }}
+        <section class="card shadow-sm h-100">
+          <div class="card-body p-4">
+            <h2 class="fs-5 fw-semibold d-flex align-items-center gap-2 mb-2" :class="'step-' + steps[0].state">
+              <span class="step-marker" aria-hidden="true">1</span> Tester files
+            </h2>
+            <label for="tester-folder" class="form-label text-body-secondary">Choose the Tester-Files folder.</label>
+            <input id="tester-folder" class="form-control" type="file" webkitdirectory :disabled="uploadingTesters"
+              @change="chooseFolder($event, 'testers')">
+            <div class="small mt-2 d-flex align-items-center gap-2" aria-live="polite"
+              :class="testerError ? 'text-danger' : state.testersReady ? 'text-success' : 'text-body-secondary'">
+              <span v-if="uploadingTesters" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+              <span>{{ testerMessage || (state.testersReady ? 'Tester files are ready.' : '') }}</span>
             </div>
           </div>
-        </div>
+        </section>
       </div>
 
       <div class="col-md-6">
-        <div class="card shadow-sm h-100">
-          <div class="card-body">
-            <h2 class="h6 fw-bold">2. Student submissions</h2>
-            <label for="submission-folder" class="form-label small text-muted mb-2">Select the folder containing student submissions.</label>
-            <input id="submission-folder" class="form-control form-control-sm mb-2" type="file" webkitdirectory @change="handleFolderSelect($event, 'submissionFiles')">
-            <button class="btn btn-sm btn-outline-primary" :disabled="!submissionFiles || submissionFiles.length === 0 || uploadingSubmissions" @click="uploadSubmissions">
-              {{ uploadingSubmissions ? 'Uploading...' : 'Upload' }}
-            </button>
-            <div class="small mt-2" aria-live="polite" :class="state.submissionsReady ? 'text-success' : 'text-muted'">
-              {{ submissionMessage || (state.submissionsReady ? 'Submissions ready' : '') }}
+        <section class="card shadow-sm h-100">
+          <div class="card-body p-4">
+            <h2 class="fs-5 fw-semibold d-flex align-items-center gap-2 mb-2" :class="'step-' + steps[1].state">
+              <span class="step-marker" aria-hidden="true">2</span> Student submissions
+            </h2>
+            <label for="submission-folder" class="form-label text-body-secondary">
+              Choose the folder that holds the student ZIPs or folders.
+            </label>
+            <input id="submission-folder" class="form-control" type="file" webkitdirectory
+              :disabled="uploadingSubmissions" @change="chooseFolder($event, 'submissions')">
+            <div class="small mt-2 d-flex align-items-center gap-2" aria-live="polite"
+              :class="submissionError ? 'text-danger' : state.submissionsReady ? 'text-success' : 'text-body-secondary'">
+              <span v-if="uploadingSubmissions" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+              <span>{{ submissionMessage || (state.submissionsReady ? 'Submissions are ready.' : '') }}</span>
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
 
-    <!-- Run, progress and report download -->
-    <div class="card shadow-sm mb-3">
-      <div class="card-body">
-        <h2 class="h6 fw-bold">3. Run grading</h2>
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <div class="fs-5">{{ headline }}</div>
+    <!-- Step 3: run grading, see progress, download the reports -->
+    <section class="card shadow-sm mb-4">
+      <div class="card-body p-4">
+        <h2 class="fs-5 fw-semibold d-flex align-items-center gap-2 mb-3" :class="'step-' + steps[2].state">
+          <span class="step-marker" aria-hidden="true">3</span> Run grading
+        </h2>
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+          <div>
+            <div class="fs-6 fw-semibold">{{ headline }}</div>
+            <div class="small text-body-secondary numbers" v-if="state.running || hasResults">
+              {{ hasResults && !state.running ? countsText + ' · ' : '' }}{{ elapsed }} elapsed
+            </div>
+          </div>
           <div class="d-flex gap-2 align-items-center flex-wrap">
-            <span class="text-muted me-2">{{ elapsed }} elapsed</span>
-            <button class="btn btn-primary" :disabled="!canRun" @click="runGrading">Run grading</button>
-            <a class="btn btn-outline-success" :class="{ disabled: !state.reportsReady }" href="/api/reports/zip"
+            <button class="btn btn-primary" :disabled="!canRun" @click="runGrading">
+              <span v-if="state.running" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+              {{ state.running ? 'Grading…' : hasResults ? 'Grade again' : 'Run grading' }}
+            </button>
+            <a class="btn btn-outline-primary" :class="{ disabled: !state.reportsReady }" href="/api/reports/zip"
               :tabindex="state.reportsReady ? 0 : -1" :aria-disabled="!state.reportsReady">
               Download all reports (ZIP)
             </a>
           </div>
         </div>
-        <div class="progress mt-3" style="height: 10px">
-          <div class="progress-bar" :style="{ width: percent + '%' }"></div>
+        <div class="progress mt-3" style="height: 8px" role="progressbar" aria-label="Grading progress"
+          :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100" v-if="state.running || hasResults">
+          <div class="progress-bar" :class="{ 'bg-success': hasResults && !state.running }"
+            :style="{ width: percent + '%' }"></div>
         </div>
         <div v-if="message" class="alert alert-danger mt-3 mb-0 py-2" role="alert">{{ message }}</div>
         <div v-if="connectionError" class="alert alert-warning mt-3 mb-0 py-2" role="alert">{{ connectionError }}</div>
       </div>
-    </div>
+    </section>
 
-    <!-- Step 3: score sheet -->
-    <div class="card shadow-sm mb-3">
-      <div class="card-body">
-        <h2 class="h6 fw-bold">4. Score sheet</h2>
-        <label for="score-sheet" class="form-label small text-muted mb-2">
-          Choose your score sheet CSV (e.g. IS442-ScoreSheet.csv). You can do this before or after grading.
-          Its columns and rows are kept; only the final grade numerator of each matched student is filled in.
+    <!-- Step 4: score sheet -->
+    <section class="card shadow-sm mb-4">
+      <div class="card-body p-4">
+        <h2 class="fs-5 fw-semibold d-flex align-items-center gap-2 mb-2" :class="'step-' + steps[3].state">
+          <span class="step-marker" aria-hidden="true">4</span> Score sheet
+        </h2>
+        <label for="score-sheet" class="form-label text-body-secondary">
+          Choose the score sheet CSV from the LMS (e.g. IS442-ScoreSheet.csv), before or after grading.
+          Only each matched student's final grade numerator is filled in; everything else is kept.
         </label>
         <div class="d-flex gap-2 align-items-center flex-wrap">
-          <input id="score-sheet" class="form-control form-control-sm" style="max-width: 380px" type="file"
-            accept=".csv,text/csv" @change="uploadScoreSheet($event)">
-          <a class="btn btn-sm btn-success" :class="{ disabled: !canDownloadSheet }" href="/api/scoresheet/download"
+          <input id="score-sheet" class="form-control" style="max-width: 420px" type="file" accept=".csv,text/csv"
+            @change="uploadScoreSheet($event)">
+          <a class="btn btn-primary" :class="{ disabled: !canDownloadSheet }" href="/api/scoresheet/download"
             :tabindex="canDownloadSheet ? 0 : -1" :aria-disabled="!canDownloadSheet">
             Download filled CSV
           </a>
         </div>
-        <div class="small mt-2" aria-live="polite" :class="sheetError ? 'text-danger' : 'text-muted'">{{ sheetStatus }}</div>
-        <div class="small mt-1 text-muted" v-if="sheetSummary">{{ sheetSummary }}</div>
-        <div class="table-responsive mt-2" v-if="preview && preview.graded && preview.entries.length">
-          <table class="table table-sm mb-0">
+        <div class="small mt-2" aria-live="polite" :class="sheetError ? 'text-danger' : 'text-body-secondary'">
+          {{ sheetStatus }}
+        </div>
+        <div class="small mt-1 text-body-secondary" v-if="sheetSummary">{{ sheetSummary }}</div>
+        <div class="table-responsive mt-3" v-if="preview && preview.graded && preview.entries.length">
+          <table class="table table-sm mb-0 numbers" style="max-width: 520px">
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Current</th>
-                <th>New</th>
+                <th scope="col">Username</th>
+                <th scope="col" class="text-end">Current</th>
+                <th scope="col" class="text-end">New</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="e in preview.entries" :key="e.username">
                 <td class="font-monospace small">{{ e.username }}</td>
-                <td class="small">{{ e.previous || '–' }}</td>
-                <td class="small fw-semibold">{{ e.score }}</td>
+                <td class="small text-end text-body-secondary">{{ e.previous || '–' }}</td>
+                <td class="small text-end fw-semibold">{{ e.score }}</td>
               </tr>
             </tbody>
           </table>
         </div>
       </div>
-    </div>
-
-    <!-- Summary cards -->
-    <div class="row g-3 mb-3">
-      <div class="col" v-for="card in cards" :key="card.label">
-        <div class="card shadow-sm h-100">
-          <div class="card-body py-2">
-            <div class="small text-muted">{{ card.label }}</div>
-            <div class="fs-4 fw-semibold">{{ card.value }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
+    </section>
 
     <!-- Skipped students: confirm their identity -->
-    <div class="card shadow-sm mb-3" v-if="skipped.length">
-      <h2 class="card-header bg-white fs-6 fw-normal mb-0">Confirm identity for skipped students</h2>
+    <section class="card shadow-sm mb-4 border-warning-subtle" v-if="skipped.length">
+      <h2 class="card-header bg-warning-subtle fs-6 fw-semibold mb-0">Confirm the identity of skipped students</h2>
       <div class="card-body">
+        <p class="small text-body-secondary">These submissions could not be matched to a student, so they were not
+          graded. Enter who they belong to, save, and grade again.</p>
         <div v-for="s in skipped" :key="s.username" class="row g-2 align-items-end border-bottom pb-3 mb-3">
           <div class="col-md-2">
-            <div class="small text-muted">Uploaded as</div>
+            <div class="small text-body-secondary">Uploaded as</div>
             <div class="font-monospace small">{{ s.username }}</div>
           </div>
           <div class="col-md-3">
             <label class="form-label small mb-1" :for="'identity-username-' + s.username">Username</label>
-            <input :id="'identity-username-' + s.username" class="form-control form-control-sm" v-model="identityForms[s.username].username"
-              placeholder="jing.lim.2021">
+            <input :id="'identity-username-' + s.username" class="form-control form-control-sm"
+              v-model="identityForms[s.username].username" placeholder="jing.lim.2021">
           </div>
           <div class="col-md-3">
             <label class="form-label small mb-1" :for="'identity-name-' + s.username">Name</label>
-            <input :id="'identity-name-' + s.username" class="form-control form-control-sm" v-model="identityForms[s.username].name" placeholder="Jing Lim">
+            <input :id="'identity-name-' + s.username" class="form-control form-control-sm"
+              v-model="identityForms[s.username].name" placeholder="Jing Lim">
           </div>
           <div class="col-md-3">
             <label class="form-label small mb-1" :for="'identity-email-' + s.username">Email</label>
-            <input :id="'identity-email-' + s.username" class="form-control form-control-sm" v-model="identityForms[s.username].email"
-              placeholder="jing.lim.2021@smu.edu.sg">
+            <input :id="'identity-email-' + s.username" class="form-control form-control-sm"
+              v-model="identityForms[s.username].email" placeholder="jing.lim.2021@smu.edu.sg">
           </div>
           <div class="col-md-1">
             <button class="btn btn-sm btn-primary w-100" @click="confirmIdentity(s.username)">Save</button>
@@ -154,94 +242,112 @@
           <div class="col-12 small text-danger">{{ s.issues.join('; ') }}</div>
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- Possible plagiarism: pairs of similar answers -->
-    <div class="card shadow-sm mb-3 border-danger" v-if="state.similarPairs && state.similarPairs.length">
-      <h2 class="card-header bg-white fs-6 fw-normal mb-0">
+    <section class="card shadow-sm mb-4 border-danger-subtle" v-if="state.similarPairs && state.similarPairs.length">
+      <h2 class="card-header bg-danger-subtle text-danger-emphasis fs-6 fw-semibold mb-0">
         Possible plagiarism
-        <span class="small text-muted">· similar answers to the same question; marks are not changed</span>
+        <span class="small fw-normal">· similar answers to the same question; marks are not changed</span>
       </h2>
       <ul class="list-group list-group-flush">
         <li class="list-group-item small" v-for="p in state.similarPairs" :key="p.question + p.first + p.second">
-          <span class="badge me-2" :class="p.flagged ? 'text-bg-danger' : 'text-bg-secondary'">{{ p.percent }}%</span>
+          <span class="badge rounded-pill me-2 numbers"
+            :class="p.flagged ? 'bg-danger-subtle text-danger-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'">
+            {{ p.percent }}%
+          </span>
           <span class="fw-semibold">{{ p.question }}</span>:
           <span class="font-monospace">{{ p.first }}</span> and <span class="font-monospace">{{ p.second }}</span>
-          <span class="text-muted" v-if="!p.flagged"> (listed only: the answers are short)</span>
-          <div class="text-muted mt-1">
+          <span class="text-body-secondary" v-if="!p.flagged"> (listed only: the answers are short)</span>
+          <div class="text-body-secondary mt-1">
             {{ p.first }}: {{ p.firstLines || '–' }} · {{ p.second }}: {{ p.secondLines || '–' }}
           </div>
         </li>
       </ul>
-    </div>
+    </section>
 
     <!-- Student table -->
-    <div class="card shadow-sm mb-3">
+    <section class="card shadow-sm mb-4">
+      <div class="card-header bg-body d-flex flex-wrap align-items-baseline gap-2">
+        <h2 class="fs-6 fw-semibold mb-0">Students</h2>
+        <span class="small text-body-secondary numbers" v-if="state.students.length">
+          {{ state.students.length }} in total · {{ countsText }}
+        </span>
+      </div>
       <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0">
+        <table class="table table-hover align-middle mb-0 numbers">
           <thead class="table-light">
             <tr>
-              <th>Student</th>
-              <th>Status</th>
-              <th v-for="q in state.questions" :key="q" class="text-center">{{ q }}</th>
-              <th class="text-end">Total</th>
-              <th class="text-end">Feedback</th>
-              <th class="text-end">Report</th>
+              <th scope="col">Student</th>
+              <th scope="col">Status</th>
+              <th scope="col" v-for="q in state.questions" :key="q" class="text-end">{{ q }}</th>
+              <th scope="col" class="text-end">Total</th>
+              <th scope="col" class="text-end">Feedback</th>
+              <th scope="col" class="text-end">Report</th>
             </tr>
           </thead>
           <tbody>
             <template v-for="s in state.students" :key="s.username">
-            <tr>
-              <td>
-                <div class="font-monospace">{{ s.username }}</div>
-                <div class="small text-danger" v-for="f in s.flags" :key="f">⚠ {{ f }}</div>
-              </td>
-              <td><span class="badge" :class="badgeClass(s.status)">{{ s.status }}</span></td>
-              <td v-for="q in state.questions" :key="q" class="text-center">{{ cell(s, q) }}</td>
-              <td class="text-end fw-semibold">{{ s.finished ? s.total : '–' }}</td>
-              <td class="text-end">
-                <button v-if="s.feedback.length" class="btn btn-sm btn-link p-0" @click="toggleFeedback(s.username)">
-                  {{ openFeedback[s.username] ? 'Hide' : 'Show' }} ({{ s.feedback.length }})
-                </button>
-                <span v-else class="text-muted small">–</span>
-              </td>
-              <td class="text-end">
-                <a v-if="state.reportsReady && s.finished" class="small"
-                  :href="'/api/reports/student?username=' + encodeURIComponent(s.username)">PDF</a>
-                <span v-else class="text-muted small">–</span>
-              </td>
-            </tr>
-            <tr v-if="openFeedback[s.username]" class="table-light">
-              <td :colspan="state.questions.length + 5" class="small">
-                <div v-for="(f, i) in s.feedback" :key="i" class="mb-2">
-                  <span class="badge text-bg-secondary me-1">{{ f.question }}</span>
-                  <span class="fw-semibold" v-if="f.where">{{ f.where }}</span>
-                  <code class="ms-1" v-if="f.code">{{ f.code }}</code>
-                  <div>
-                    <template v-for="(part, j) in codeParts(f.message)" :key="j">
-                      <code v-if="part.code">{{ part.text }}</code><template v-else>{{ part.text }}</template>
-                    </template>
+              <tr>
+                <td>
+                  <div class="font-monospace">{{ s.username }}</div>
+                  <div class="small text-danger d-flex align-items-center gap-1" v-for="f in s.flags" :key="f">
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                      stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M8 2l6.5 11.5h-13z" />
+                      <path d="M8 6.5v3.2M8 11.6v.1" stroke-linecap="round" />
+                    </svg>
+                    {{ f }}
                   </div>
-                </div>
-              </td>
-            </tr>
+                </td>
+                <td><span class="badge rounded-pill" :class="statusBadge(s.status)">{{ statusLabel(s.status) }}</span></td>
+                <td v-for="q in state.questions" :key="q" class="text-end"
+                  :class="{ 'text-body-tertiary': s.scores[q] === 0 }">{{ cell(s, q) }}</td>
+                <td class="text-end fw-semibold">{{ s.finished ? s.total : '–' }}</td>
+                <td class="text-end">
+                  <button v-if="s.feedback.length" class="btn btn-sm btn-link p-0" @click="toggleFeedback(s.username)"
+                    :aria-expanded="!!openFeedback[s.username]">
+                    {{ openFeedback[s.username] ? 'Hide' : 'Show' }} ({{ s.feedback.length }})
+                  </button>
+                  <span v-else class="text-body-tertiary small">–</span>
+                </td>
+                <td class="text-end">
+                  <a v-if="state.reportsReady && s.finished" class="small"
+                    :href="'/api/reports/student?username=' + encodeURIComponent(s.username)">PDF</a>
+                  <span v-else class="text-body-tertiary small">–</span>
+                </td>
+              </tr>
+              <tr v-if="openFeedback[s.username]" class="table-light">
+                <td :colspan="state.questions.length + 5" class="small px-4 py-3">
+                  <div v-for="(f, i) in s.feedback" :key="i" class="mb-2">
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ f.question }}</span>
+                    <span class="fw-semibold" v-if="f.where">{{ f.where }}</span>
+                    <code class="ms-1" v-if="f.code">{{ f.code }}</code>
+                    <div>
+                      <template v-for="(part, j) in codeParts(f.message)" :key="j">
+                        <code v-if="part.code">{{ part.text }}</code><template v-else>{{ part.text }}</template>
+                      </template>
+                    </div>
+                  </div>
+                </td>
+              </tr>
             </template>
             <tr v-if="state.students.length === 0">
-              <td :colspan="state.questions.length + 5" class="text-center text-muted py-4">
-                No submissions yet. Upload the files above.
+              <td :colspan="state.questions.length + 5" class="text-center text-body-secondary py-5">
+                {{ nextHint }}
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
 
     <!-- Activity -->
-    <div class="card shadow-sm">
-      <h2 class="card-header bg-white fs-6 fw-normal mb-0">Activity</h2>
+    <section class="card shadow-sm">
+      <h2 class="card-header bg-body fs-6 fw-semibold mb-0">Activity</h2>
       <pre class="card-body mb-0 small"
         style="max-height: 220px; overflow-y: auto">{{ state.activity.join('\n') }}</pre>
-    </div>
+    </section>
 
   </main>
 
@@ -258,12 +364,12 @@
           questions: [], students: [], activity: [], similarPairs: [],
         });
         const openFeedback = ref({});
-        const testerFiles = ref([]);
-        const submissionFiles = ref([]);
         const uploadingTesters = ref(false);
         const uploadingSubmissions = ref(false);
         const testerMessage = ref('');
         const submissionMessage = ref('');
+        const testerError = ref(false);
+        const submissionError = ref(false);
         const message = ref('');
         const connectionError = ref('');
         const identityForms = ref({});
@@ -272,11 +378,14 @@
         const sheetError = ref(false);
         let timerId = null;
 
-        function handleFolderSelect(event, targetRef) {
-          if (targetRef === 'testerFiles') {
-            testerFiles.value = Array.from(event.target.files);
-          } else if (targetRef === 'submissionFiles') {
-            submissionFiles.value = Array.from(event.target.files);
+        // Choosing a folder uploads it straight away; there is no separate Upload button.
+        async function chooseFolder(event, kind) {
+          const files = Array.from(event.target.files);
+          if (files.length === 0) return;
+          if (kind === 'testers') {
+            await uploadTesters(files);
+          } else {
+            await uploadSubmissions(files);
           }
         }
 
@@ -300,15 +409,18 @@
           return data;
         }
 
-        async function uploadTesters() {
-          testerMessage.value = 'Packing folder...';
+        async function uploadTesters(files) {
+          testerError.value = false;
+          testerMessage.value = 'Packing the folder…';
           uploadingTesters.value = true;
           try {
-            const zipBlob = await createZipFromFiles(testerFiles.value);
-            testerMessage.value = 'Uploading...';
+            const zipBlob = await createZipFromFiles(files);
+            testerMessage.value = 'Uploading…';
             const data = await postZip('/api/testers', zipBlob);
+            testerError.value = !data.valid;
             testerMessage.value = data.valid ? '' : data.messages.join(' ');
           } catch (error) {
+            testerError.value = true;
             testerMessage.value = error.message;
           } finally {
             uploadingTesters.value = false;
@@ -316,15 +428,19 @@
           await refresh();
         }
 
-        async function uploadSubmissions() {
-          submissionMessage.value = 'Packing folder...';
+        async function uploadSubmissions(files) {
+          submissionError.value = false;
+          submissionMessage.value = 'Packing the folder…';
           uploadingSubmissions.value = true;
           try {
-            const zipBlob = await createZipFromFiles(submissionFiles.value);
-            submissionMessage.value = 'Uploading...';
+            const zipBlob = await createZipFromFiles(files);
+            submissionMessage.value = 'Uploading and checking the submissions…';
             const data = await postZip('/api/submissions', zipBlob);
-            submissionMessage.value = `${data.ready} of ${data.total} ready, ${data.skipped} need identity confirmation`;
+            submissionMessage.value = data.skipped
+              ? `${data.ready} of ${data.total} ready; ${data.skipped} need their identity confirmed below.`
+              : `All ${data.total} submissions are ready.`;
           } catch (error) {
+            submissionError.value = true;
             submissionMessage.value = error.message;
           } finally {
             uploadingSubmissions.value = false;
@@ -337,7 +453,7 @@
           const file = event.target.files[0];
           if (!file) return;
           sheetError.value = false;
-          sheetStatus.value = `Uploading ${file.name}...`;
+          sheetStatus.value = `Uploading ${file.name}…`;
           try {
             const response = await fetch('/api/scoresheet?name=' + encodeURIComponent(file.name), {
               method: 'POST',
@@ -418,6 +534,22 @@
         const canDownloadSheet = computed(() =>
           !!state.value.scoreSheetName && state.value.reportsReady && !state.value.running);
 
+        // Each step is done, the one to do now, or still to come.
+        const steps = computed(() => {
+          const done = [
+            state.value.testersReady,
+            state.value.submissionsReady,
+            state.value.reportsReady && !state.value.running,
+            canDownloadSheet.value,
+          ];
+          const current = done.indexOf(false);
+          return ['Tester files', 'Submissions', 'Run grading', 'Score sheet'].map((label, index) => ({
+            number: index + 1,
+            label,
+            state: done[index] ? 'done' : index === current ? 'current' : 'upcoming',
+          }));
+        });
+
         const sheetSummary = computed(() => {
           const p = preview.value;
           if (!p || !p.loaded) return '';
@@ -432,18 +564,23 @@
           if (state.value.running) {
             return `Grading ${state.value.done} of ${state.value.total}: ${state.value.currentStudent}, ${state.value.currentStep}`;
           }
-          if (state.value.total === 0) return 'Upload the testers and submissions to begin';
-          return hasResults.value ? 'Grading finished' : 'Ready to grade';
+          if (state.value.total === 0) return 'Choose the tester files and submissions first.';
+          return hasResults.value ? 'Grading finished.' : 'Ready to grade.';
         });
 
-        const cards = computed(() => {
-          const countWith = (status) => state.value.students.filter((s) => s.status === status).length;
-          return [
-            { label: 'Graded', value: countWith('graded') },
-            { label: 'Auto-fixed', value: countWith('auto-fixed') },
-            { label: 'Need review', value: countWith('needs-review') },
-            { label: 'Skipped', value: countWith('skipped') },
-          ];
+        const countWith = (status) => state.value.students.filter((s) => s.status === status).length;
+
+        // A student who needs review or was auto-fixed has still been graded, so they count as graded too.
+        const countsText = computed(() => {
+          const graded = state.value.students.filter((s) => s.finished && s.status !== 'skipped').length;
+          return `${graded} graded · ${countWith('needs-review')} need review · `
+            + `${countWith('auto-fixed')} auto-fixed · ${countWith('skipped')} skipped`;
+        });
+
+        // What to do next, shown while the student table is still empty.
+        const nextHint = computed(() => {
+          if (!state.value.testersReady) return 'Start with step 1: choose the Tester-Files folder.';
+          return 'Next, choose the folder of student submissions in step 2.';
         });
 
         // Splits "Use `x` here" into text and code parts, so code shows as code without inserting HTML.
@@ -460,14 +597,26 @@
           return student.status === 'running' ? '…' : '–';
         }
 
-        function badgeClass(status) {
+        function statusLabel(status) {
           return {
-            queued: 'text-bg-secondary',
-            running: 'text-bg-primary',
-            graded: 'text-bg-success',
-            'auto-fixed': 'text-bg-warning',
-            'needs-review': 'text-bg-danger',
-            skipped: 'text-bg-dark',
+            queued: 'Queued',
+            running: 'Grading',
+            graded: 'Graded',
+            'auto-fixed': 'Auto-fixed',
+            'needs-review': 'Needs review',
+            skipped: 'Skipped',
+          }[status] || status;
+        }
+
+        // Soft badge colours; only the statuses that need attention use warning colours.
+        function statusBadge(status) {
+          return {
+            queued: 'bg-secondary-subtle text-secondary-emphasis',
+            running: 'bg-primary-subtle text-primary-emphasis',
+            graded: 'bg-success-subtle text-success-emphasis',
+            'auto-fixed': 'bg-info-subtle text-info-emphasis',
+            'needs-review': 'bg-danger-subtle text-danger-emphasis',
+            skipped: 'bg-warning-subtle text-warning-emphasis',
           }[status];
         }
 
@@ -479,13 +628,12 @@
         onBeforeUnmount(() => clearInterval(timerId));
 
         return {
-          state, testerFiles, submissionFiles, uploadingTesters, uploadingSubmissions,
-          testerMessage, submissionMessage, message, connectionError, identityForms,
-          preview, sheetStatus, sheetError,
-          handleFolderSelect, uploadTesters, uploadSubmissions, uploadScoreSheet,
-          confirmIdentity, runGrading,
-          percent, elapsed, skipped, hasResults, canRun, canDownloadSheet, sheetSummary,
-          headline, cards, cell, badgeClass, openFeedback, toggleFeedback, codeParts,
+          state, uploadingTesters, uploadingSubmissions,
+          testerMessage, submissionMessage, testerError, submissionError, message, connectionError,
+          identityForms, preview, sheetStatus, sheetError,
+          chooseFolder, uploadScoreSheet, confirmIdentity, runGrading,
+          percent, elapsed, skipped, hasResults, canRun, canDownloadSheet, sheetSummary, steps,
+          headline, countsText, nextHint, cell, statusLabel, statusBadge, openFeedback, toggleFeedback, codeParts,
         };
       },
     }).mount('#app');
