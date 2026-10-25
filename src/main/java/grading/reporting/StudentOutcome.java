@@ -2,8 +2,10 @@ package grading.reporting;
 
 import grading.common.Messages;
 import grading.execution.QuestionGradingResult;
+import grading.feedback.Feedback;
 import grading.execution.StudentGradingResult;
 import grading.scoring.ScoreBreakdown;
+import grading.similarity.SimilarityPair;
 import grading.style.StudentStyleResult;
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionFinding;
@@ -20,12 +22,16 @@ import java.util.Objects;
  * @param grading    the tester results, or null when the student was not graded
  * @param style      the style check, or null when style was not checked
  * @param score      the mark breakdown, or null when the student was not graded
+ * @param feedback   explanations of the student's mistakes, in question order
+ * @param similar    the flagged pairs of similar answers this student is part of
  */
 public record StudentOutcome(SubmissionValidationResult submission, StudentGradingResult grading,
-        StudentStyleResult style, ScoreBreakdown score) {
+        StudentStyleResult style, ScoreBreakdown score, List<Feedback> feedback, List<SimilarityPair> similar) {
 
     public StudentOutcome {
         Objects.requireNonNull(submission, "submission");
+        feedback = feedback == null ? List.of() : List.copyOf(feedback);
+        similar = similar == null ? List.of() : List.copyOf(similar);
     }
 
     public String username() {
@@ -38,9 +44,23 @@ public record StudentOutcome(SubmissionValidationResult submission, StudentGradi
 
     /**
      * Why a person should look at this student before the marks are released; empty when none.
-     * Results that cannot be read are themselves a reason, never an error.
+     * Includes answers that are very similar to another student's. Results that cannot be read are
+     * themselves a reason, never an error.
      */
     public List<String> reviewReasons() {
+        List<String> reasons = new ArrayList<>(ownReviewReasons());
+        for (SimilarityPair pair : similar) {
+            reasons.add(pair.questionId() + " is " + pair.percent() + "% similar to "
+                    + pair.otherThan(username()) + "'s answer; check for copying.");
+        }
+        return List.copyOf(reasons);
+    }
+
+    /**
+     * The review reasons about this student's own work only, without comparisons with other
+     * students, for reports that the student may see.
+     */
+    public List<String> ownReviewReasons() {
         List<String> reasons = new ArrayList<>();
         try {
             addReviewReasons(reasons);

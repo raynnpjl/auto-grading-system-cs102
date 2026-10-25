@@ -3,6 +3,7 @@ package grading.reporting;
 import grading.assessment.AssessmentDefinition;
 import grading.config.GradingSettings;
 import grading.config.PenaltySettings;
+import grading.config.SimilaritySettings;
 import grading.execution.QuestionGradingResult;
 import grading.scoring.ScoreBreakdown;
 import grading.style.StudentStyleResult;
@@ -51,7 +52,10 @@ public final class AttemptSummaryFormatter {
         StudentReportFormatter.section(report, "Students needing a manual check",
                 () -> needingReview(attempt, reportFiles));
         StudentReportFormatter.section(report, "Other students", () -> others(attempt, reportFiles));
+        StudentReportFormatter.section(report, "Possible plagiarism",
+                () -> SimilarityReportFormatter.format(attempt.similarity()));
         StudentReportFormatter.section(report, "Class statistics", () -> statistics(attempt));
+        StudentReportFormatter.section(report, "Common mistakes", () -> CommonMistakesFormatter.format(attempt));
         StudentReportFormatter.section(report, "Configuration used", () -> configuration(attempt));
         if (!problems.isEmpty()) {
             StudentReportFormatter.section(report, "Problems while writing reports", () -> problems.stream()
@@ -218,6 +222,13 @@ public final class AttemptSummaryFormatter {
                     .append(rule.text()).append('\n'));
             text.append('\n');
         }
+        SimilaritySettings similarity = settings.similarity();
+        text.append("Plagiarism check: reported at ").append(Math.round(similarity.threshold() * 100))
+                .append("% similarity, flagged when both answers have at least ").append(similarity.minTokens())
+                .append(" tokens; winnowing k = ").append(similarity.kgramSize()).append(", w = ")
+                .append(similarity.windowSize()).append(", screening at ")
+                .append(Math.round(similarity.screenThreshold() * 100)).append("%; Greedy String Tiling minimum match ")
+                .append(similarity.minMatchTokens()).append(" tokens.\n\n");
         text.append("Questions: ");
         text.append(AssessmentDefinition.QUESTIONS.stream()
                 .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")

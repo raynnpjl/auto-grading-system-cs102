@@ -1,0 +1,11 @@
+package grading.feedback;
+
+/**
+ * Where a method is in a source file.
+ *
+ * @param name  the method's name
+ * @param start the 1-based line of its declaration
+ * @param end   the 1-based line of its closing brace
+ */
+record MethodSpan(String name, int start, int end) {
+}

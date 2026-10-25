@@ -3,10 +3,15 @@ package grading.reporting;
 import grading.common.Messages;
 import grading.config.GradingSettings;
 import grading.execution.StudentGradingResult;
+import grading.feedback.Feedback;
+import grading.feedback.FeedbackGenerator;
 import grading.scoring.ScoreBreakdown;
+import grading.similarity.SimilarityChecker;
+import grading.similarity.SimilarityReport;
 import grading.style.StudentStyleResult;
 import grading.style.StyleChecker;
 import grading.style.StyleRules;
+import grading.style.Templates;
 import grading.submission.SubmissionValidationResult;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -28,18 +33,20 @@ import java.util.function.Function;
  * @param styleRules        the style rules in effect
  * @param checkstyleVersion the Checkstyle release used
  * @param students          the outcome for every imported submission, in import order
+ * @param similarity        the comparison of every pair of students' answers
  */
 public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, Path testerFolder,
         Path submissionsFolder, GradingSettings settings, StyleRules styleRules, String checkstyleVersion,
-        List<StudentOutcome> students) {
+        List<StudentOutcome> students, SimilarityReport similarity) {
 
     public GradingAttempt {
         students = List.copyOf(students);
     }
 
     /**
-     * Combines each submission with its grading result, its style check and its mark breakdown.
-     * Graded results are matched to the submissions that were ready for grading, in import order.
+     * Combines each submission with its grading result, its style check, its mark breakdown and the
+     * feedback on its mistakes, and compares every pair of students for possible plagiarism. Graded
+     * results are matched to the submissions that were ready for grading, in import order.
      */
     public static GradingAttempt assemble(LocalDateTime startedAt, Path testerFolder, Path submissionsFolder,
             GradingSettings settings, List<SubmissionValidationResult> submissions,
@@ -52,16 +59,44 @@ public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, 
             GradingSettings settings, List<SubmissionValidationResult> submissions,
             List<StudentGradingResult> results, Function<SubmissionValidationResult, StudentStyleResult> style,
             StyleRules rules) {
+        Templates templates = new Templates(settings.style().templateFolder());
+        FeedbackGenerator feedback = new FeedbackGenerator(templates);
+        SimilarityReport similarity = compare(submissions, settings, templates);
         Iterator<StudentGradingResult> graded = results.iterator();
         List<StudentOutcome> outcomes = new ArrayList<>();
         for (SubmissionValidationResult submission : submissions) {
             StudentGradingResult grading = submission.isReadyForGrading() && graded.hasNext() ? graded.next() : null;
             StudentStyleResult styleResult = checkStyle(submission, style, settings);
             ScoreBreakdown score = grading == null ? null : score(grading, styleResult, settings);
-            outcomes.add(new StudentOutcome(submission, grading, styleResult, score));
+            outcomes.add(new StudentOutcome(submission, grading, styleResult, score,
+                    explain(feedback, submission, grading), similarity.flaggedFor(submission.username())));
         }
         return new GradingAttempt(startedAt, LocalDateTime.now(), testerFolder, submissionsFolder, settings, rules,
-                StyleChecker.checkstyleVersion(), outcomes);
+                StyleChecker.checkstyleVersion(), outcomes, similarity);
+    }
+
+    // A problem in the plagiarism check must not stop the attempt; the summary says it was not completed.
+    private static SimilarityReport compare(List<SubmissionValidationResult> submissions, GradingSettings settings,
+            Templates templates) {
+        try {
+            return new SimilarityChecker(settings.similarity(), templates).check(submissions);
+        } catch (RuntimeException exception) {
+            return SimilarityReport.failed(settings.similarity(),
+                    "The plagiarism check could not be completed: " + Messages.describe(exception));
+        }
+    }
+
+    // Feedback that cannot be produced is left out; the test results in the report still show what failed.
+    private static List<Feedback> explain(FeedbackGenerator feedback, SubmissionValidationResult submission,
+            StudentGradingResult grading) {
+        if (grading == null) {
+            return List.of();
+        }
+        try {
+            return feedback.forStudent(submission, grading);
+        } catch (RuntimeException exception) {
+            return List.of();
+        }
     }
 
     // One student's style problem must not stop the attempt; it is reported as not checked.

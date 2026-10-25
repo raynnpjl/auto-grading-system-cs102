@@ -20,6 +20,7 @@ import java.time.Duration;
  * @param port               port of the web page on this computer
  * @param style              style checking and scoring
  * @param penalties          penalties deducted from the tester marks
+ * @param similarity         detection of submissions that are too similar to each other
  * @param reportsFolder      folder that receives one sub-folder of reports per grading attempt
  */
 public record GradingSettings(
@@ -37,6 +38,7 @@ public record GradingSettings(
         int port,
         StyleSettings style,
         PenaltySettings penalties,
+        SimilaritySettings similarity,
         Path reportsFolder) {
 
     private static final GradingSettings CURRENT = load(ConfigFile.load("grading"));
@@ -68,6 +70,13 @@ public record GradingSettings(
                 new PenaltySettings(
                         file.nonNegativeDecimal("penalty.style-per-violation"),
                         file.nonNegativeDecimal("penalty.style-cap")),
+                new SimilaritySettings(
+                        file.fraction("similarity.threshold"),
+                        file.fraction("similarity.screen-threshold"),
+                        Math.toIntExact(file.positiveNumber("similarity.min-tokens")),
+                        Math.toIntExact(file.positiveNumber("similarity.kgram-size")),
+                        Math.toIntExact(file.positiveNumber("similarity.window-size")),
+                        Math.toIntExact(file.positiveNumber("similarity.min-match-tokens"))),
                 Path.of(file.text("reports.folder")));
     }
 }

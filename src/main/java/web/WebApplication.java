@@ -255,6 +255,8 @@ public final class WebApplication {
                     new JavaGradingService(log, progress).gradeBatch(batch, testerResult);
             GradingAttempt attempt = GradingAttempt.assemble(started, testerResult.source(), uploads,
                     settings, batch, results, new StyleChecker(settings.style()));
+            attempt.students().forEach(student -> progress.feedback(student.username(), student.feedback()));
+            progress.similarity(attempt.similarity().pairs());
             AttemptReportWriter.Written written = new AttemptReportWriter(settings.reportsFolder()).write(attempt);
             log.accept("Grading complete. Reports: " + written.folder().map(Path::toString).orElse("not written"));
 

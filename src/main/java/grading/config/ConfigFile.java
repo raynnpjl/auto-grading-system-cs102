@@ -74,6 +74,16 @@ public final class ConfigFile {
                 + ".properties must be a number of zero or more");
     }
 
+    /** A share from 0 to 1, such as 0.8 for 80%. */
+    public double fraction(String key) {
+        double number = nonNegativeDecimal(key);
+        if (number > 1) {
+            throw new IllegalStateException("Setting " + key + " in " + name
+                    + ".properties must be between 0 and 1, such as 0.8 for 80%");
+        }
+        return number;
+    }
+
     public long positiveNumber(String key) {
         try {
             long number = Long.parseLong(text(key));

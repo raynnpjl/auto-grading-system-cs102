@@ -2,6 +2,9 @@ package grading.progress;
 
 import grading.assessment.AssessmentDefinition;
 import grading.common.Json;
+import grading.feedback.Feedback;
+import grading.feedback.SourceLocation;
+import grading.similarity.SimilarityPair;
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionValidationResult;
 import java.time.Duration;
@@ -19,6 +22,7 @@ public final class ProgressTracker {
 
     private final Map<String, Row> rows = new LinkedHashMap<>();
     private final List<String> activity = new ArrayList<>();
+    private final List<SimilarityPair> similarPairs = new ArrayList<>();
     private boolean running;
     private Instant startedAt;
     private Instant endedAt;
@@ -33,6 +37,7 @@ public final class ProgressTracker {
     public synchronized void prepare(List<SubmissionValidationResult> submissions) {
         rows.clear();
         activity.clear();
+        similarPairs.clear();
         running = false;
         startedAt = null;
         endedAt = null;
@@ -108,6 +113,39 @@ public final class ProgressTracker {
     }
 
     /**
+     * Shows the feedback on a student's mistakes in their row.
+     *
+     * @param username the student
+     * @param feedback the explanations, in question order
+     */
+    public synchronized void feedback(String username, List<Feedback> feedback) {
+        rows(username).feedback = List.copyOf(feedback);
+    }
+
+    /**
+     * Shows the pairs of similar answers. Students in a flagged pair are marked for review, with a note
+     * naming the other student; marks are unchanged.
+     *
+     * @param pairs every reported pair, flagged or not
+     */
+    public synchronized void similarity(List<SimilarityPair> pairs) {
+        similarPairs.clear();
+        similarPairs.addAll(pairs);
+        for (SimilarityPair pair : pairs) {
+            if (pair.flagged()) {
+                flag(pair.first(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.second());
+                flag(pair.second(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.first());
+            }
+        }
+    }
+
+    private void flag(String username, String note) {
+        Row row = rows(username);
+        row.status = "needs-review";
+        row.flags.add(note);
+    }
+
+    /**
      * Adds one line to the Activity panel. Only the newest lines are kept.
      *
      * @param message the text to show
@@ -148,6 +186,18 @@ public final class ProgressTracker {
                 + ",\"students\":" + rows.values().stream().map(Row::toJson)
                         .collect(Collectors.joining(",", "[", "]"))
                 + ",\"activity\":" + Json.strings(activity)
+                + ",\"similarPairs\":" + Json.array(similarPairs.stream().map(ProgressTracker::pairJson).toList())
+                + "}";
+    }
+
+    private static String pairJson(SimilarityPair pair) {
+        return "{\"question\":" + Json.quote(pair.questionId())
+                + ",\"first\":" + Json.quote(pair.first())
+                + ",\"second\":" + Json.quote(pair.second())
+                + ",\"percent\":" + pair.percent()
+                + ",\"flagged\":" + pair.flagged()
+                + ",\"firstLines\":" + Json.quote(SimilarityPair.describe(pair.firstLines()))
+                + ",\"secondLines\":" + Json.quote(SimilarityPair.describe(pair.secondLines()))
                 + "}";
     }
 
@@ -171,6 +221,8 @@ public final class ProgressTracker {
         boolean finished;
         final Map<String, Double> scores = new LinkedHashMap<>();
         final List<String> issues = new ArrayList<>();
+        final List<String> flags = new ArrayList<>();
+        List<Feedback> feedback = List.of();
 
         Row(String username) {
             this.username = username;
@@ -187,6 +239,17 @@ public final class ProgressTracker {
                             .collect(Collectors.joining(",", "{", "}"))
                     + ",\"total\":" + total
                     + ",\"issues\":" + Json.strings(issues)
+                    + ",\"flags\":" + Json.strings(flags)
+                    + ",\"feedback\":" + Json.array(feedback.stream().map(Row::feedbackJson).toList())
+                    + "}";
+        }
+
+        private static String feedbackJson(Feedback feedback) {
+            return "{\"question\":" + Json.quote(feedback.questionId())
+                    + ",\"kind\":" + Json.quote(feedback.kind())
+                    + ",\"where\":" + Json.quote(feedback.location().map(SourceLocation::label).orElse(""))
+                    + ",\"code\":" + Json.quote(feedback.location().map(SourceLocation::code).orElse(""))
+                    + ",\"message\":" + Json.quote(feedback.message())
                     + "}";
         }
     }

@@ -1,0 +1,12 @@
+package grading.feedback;
+
+import java.util.List;
+
+/**
+ * Explains one kind of mistake. Each rule looks at a question's results and the student's code, and
+ * returns feedback only for what it recognises; new rules can be added without changing the others.
+ */
+interface FeedbackRule {
+
+    List<Feedback> apply(FeedbackContext context);
+}

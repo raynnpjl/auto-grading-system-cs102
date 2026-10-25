@@ -6,6 +6,7 @@ import grading.config.PenaltySettings;
 import grading.execution.ProcessResult;
 import grading.execution.QuestionGradingResult;
 import grading.execution.TestCaseResult;
+import grading.feedback.Feedback;
 import grading.scoring.ScoreBreakdown;
 import grading.style.FileStyleResult;
 import grading.style.StudentStyleResult;
@@ -79,7 +80,7 @@ public final class StudentReportFormatter {
                     .append(" out of ").append(PlainLanguage.marks(style.maxScore())).append(" (")
                     .append(style.violationCount()).append(" violation(s) found)\n");
         }
-        List<String> reasons = student.reviewReasons();
+        List<String> reasons = student.ownReviewReasons();
         if (reasons.isEmpty()) {
             text.append("- **Manual check needed:** no.\n");
         } else {
@@ -145,7 +146,25 @@ public final class StudentReportFormatter {
                 text.append("No result was recorded for this question.\n\n");
                 continue;
             }
-            text.append(question(result)).append('\n');
+            text.append(question(result)).append(feedback(student, question.id())).append('\n');
+        }
+        return text.toString();
+    }
+
+    // What went wrong in the question, each point at the line of the student's code it is about.
+    private static String feedback(StudentOutcome student, String questionId) {
+        List<Feedback> points = student.feedback().stream()
+                .filter(feedback -> feedback.questionId().equals(questionId))
+                .toList();
+        if (points.isEmpty()) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder("\n**What went wrong:**\n\n");
+        for (Feedback point : points) {
+            text.append("- ");
+            point.location().ifPresent(location -> text.append("**").append(location.label()).append("** (")
+                    .append(PlainLanguage.inlineCode(location.code())).append("): "));
+            text.append(point.message()).append('\n');
         }
         return text.toString();
     }

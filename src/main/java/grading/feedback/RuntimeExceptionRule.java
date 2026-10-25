@@ -1,0 +1,128 @@
+package grading.feedback;
+
+import grading.execution.QuestionGradingResult;
+import grading.execution.TestCaseResult;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Explains exceptions thrown by the student's code while a test case ran, at the line of their code
+ * where it was thrown. The testers print each stack trace in test-case order.
+ */
+final class RuntimeExceptionRule implements FeedbackRule {
+
+    /** One exception from the tester's error output, and where it was thrown in the student's code. */
+    record Thrown(String type, String message, String file, int line) {
+
+        String simpleType() {
+            return type.substring(type.lastIndexOf('.') + 1);
+        }
+    }
+
+    private static final Pattern HEADER = Pattern.compile(
+            "^(?:Exception in thread \"[^\"]*\" )?((?:[\\w$]+\\.)*[\\w$]*(?:Exception|Error))(?::\\s*(.*))?$");
+    private static final Pattern FRAME = Pattern.compile("^\\s+at (?:[\\w$.]+/)?[\\w$.<>]+\\(([\\w$]+\\.java):(\\d+)\\)");
+    private static final String TESTER_SUFFIX = "Tester.java";
+    private static final String EXCEPTION_DETAIL = "Exception";
+
+    @Override
+    public List<Feedback> apply(FeedbackContext context) {
+        var execution = context.result().execution();
+        if (execution == null) {
+            return List.of();
+        }
+        List<Thrown> thrown = parse(execution.stderr(), context);
+        if (thrown.isEmpty()) {
+            return List.of();
+        }
+        List<TestCaseResult> failed = context.unexplainedFailures().stream()
+                .filter(test -> test.detail().equalsIgnoreCase(EXCEPTION_DETAIL))
+                .toList();
+        Map<Thrown, List<TestCaseResult>> byException = new LinkedHashMap<>();
+        if (failed.isEmpty() && context.result().status() == QuestionGradingResult.Status.RUNTIME_ERROR) {
+            byException.put(thrown.getFirst(), List.of());
+        }
+        for (int index = 0; index < failed.size(); index++) {
+            Thrown exception = thrown.get(Math.min(index, thrown.size() - 1));
+            byException.computeIfAbsent(exception, key -> new ArrayList<>()).add(failed.get(index));
+        }
+        List<Feedback> feedback = new ArrayList<>();
+        byException.forEach((exception, tests) -> {
+            String intro = tests.isEmpty()
+                    ? "The tester stopped with `" + exception.simpleType() + "`"
+                    : FeedbackContext.testNumbers(tests) + " stopped with `" + exception.simpleType() + "`";
+            String detail = exception.message() == null || exception.message().isBlank()
+                    ? ". "
+                    : " (" + exception.message() + "). ";
+            Optional<SourceLocation> location = context.submittedLocation(exception.file(), exception.line());
+            feedback.add(new Feedback(context.questionId(), exception.simpleType(),
+                    intro + detail + hint(exception, location.map(SourceLocation::code).orElse("")), location));
+            context.explain(tests);
+        });
+        return feedback;
+    }
+
+    // Each exception with the first line of the student's own code in its stack trace.
+    private static List<Thrown> parse(String stderr, FeedbackContext context) {
+        List<Thrown> thrown = new ArrayList<>();
+        String type = null;
+        String message = null;
+        boolean located = false;
+        for (String line : (stderr == null ? "" : stderr).lines().toList()) {
+            Matcher header = HEADER.matcher(line.strip());
+            Matcher frame = FRAME.matcher(line);
+            if (!line.startsWith(" ") && !line.startsWith("\t") && header.matches()) {
+                addUnlocated(thrown, type, message, located);
+                type = header.group(1);
+                message = header.group(2);
+                located = false;
+            } else if (type != null && !located && frame.find() && !frame.group(1).endsWith(TESTER_SUFFIX)
+                    && context.source(frame.group(1)).isPresent()) {
+                thrown.add(new Thrown(type, message, frame.group(1), Integer.parseInt(frame.group(2))));
+                located = true;
+            }
+        }
+        addUnlocated(thrown, type, message, located);
+        return thrown;
+    }
+
+    // An exception whose stack trace never reaches the student's code still belongs to a test case.
+    private static void addUnlocated(List<Thrown> thrown, String type, String message, boolean located) {
+        if (type != null && !located) {
+            thrown.add(new Thrown(type, message, "", 0));
+        }
+    }
+
+    private static String hint(Thrown exception, String code) {
+        return switch (exception.simpleType()) {
+            case "NullPointerException" -> "Something used on this line is `null`: make sure every object is "
+                    + "created (for example with `new ArrayList<>()`) before it is used.";
+            case "ArrayIndexOutOfBoundsException", "StringIndexOutOfBoundsException", "IndexOutOfBoundsException" ->
+                    "An index is outside the array, list or string."
+                            + (code.contains("<=") ? " This loop uses `<=`: indexes go up to `length - 1`, so "
+                                    + "stop at `<`." : " Indexes go from 0 to `size() - 1`.");
+            case "NumberFormatException" -> "Text that is not a number was converted to one. Check what is passed "
+                    + "to `parseInt`/`parseDouble` (spaces, empty strings, other words) and skip or handle it.";
+            case "ArithmeticException" -> "This divides by zero. Check that the divisor cannot be 0, for example "
+                    + "when nothing matched.";
+            case "ClassCastException" -> "A value is cast to a type it is not. Check its type with `instanceof` "
+                    + "before casting.";
+            case "ConcurrentModificationException" -> "A list is changed while a for-each loop goes through it. "
+                    + "Use an `Iterator` and its `remove()`, or build a new list.";
+            case "FileNotFoundException", "IOException" -> "A file could not be opened. Catch the exception and "
+                    + "handle a missing file the way the question asks.";
+            case "NoSuchElementException", "InputMismatchException" -> "The code reads input that is not there "
+                    + "or is not of the expected type. Check `hasNext...()` before each `next...()`.";
+            case "StackOverflowError" -> "The method keeps calling itself. Check that the recursion reaches a "
+                    + "base case.";
+            case "OutOfMemoryError" -> "A loop keeps adding to a collection without stopping. Check the loop's "
+                    + "condition.";
+            default -> "Check the values used on this line.";
+        };
+    }
+}
