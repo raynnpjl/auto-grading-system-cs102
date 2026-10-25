@@ -73,6 +73,10 @@ public final class WebApplication {
     private final AtomicBoolean grading = new AtomicBoolean(false);
     private final Map<String, Handler> routes = Map.ofEntries(
             Map.entry("GET /", HttpResponses::sendPage),
+            // The page's libraries are packaged with the application, so no internet connection is needed.
+            Map.entry("GET /lib/bootstrap.min.css", library("bootstrap.min.css", HttpResponses.CSS)),
+            Map.entry("GET /lib/vue.global.prod.js", library("vue.global.prod.js", HttpResponses.JAVASCRIPT)),
+            Map.entry("GET /lib/jszip.min.js", library("jszip.min.js", HttpResponses.JAVASCRIPT)),
             Map.entry("GET /api/progress", exchange -> sendJson(exchange, progressJson())),
             Map.entry("GET /api/reports/zip", this::zipReports),
             Map.entry("GET /api/reports/student", this::studentReport),
@@ -113,6 +117,10 @@ public final class WebApplication {
         server.setExecutor(Executors.newCachedThreadPool());
         server.createContext("/", this::route);
         server.start();
+    }
+
+    private static Handler library(String fileName, String type) {
+        return exchange -> HttpResponses.sendResource(exchange, "/web/lib/" + fileName, type);
     }
 
     /** Sends each request to the handler registered for its method and path. */

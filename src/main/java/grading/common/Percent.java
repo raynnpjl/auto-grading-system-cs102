@@ -1,0 +1,20 @@
+package grading.common;
+
+/** Turns shares into the whole percentages shown in reports. */
+public final class Percent {
+
+    private static final double HUNDRED = 100.0;
+
+    private Percent() {
+    }
+
+    /** A share from 0 to 1 as a whole percentage, such as 0.914 as 91. */
+    public static long of(double share) {
+        return Math.round(share * HUNDRED);
+    }
+
+    /** {@code part} out of {@code whole} as a whole percentage, such as 3 of 4 as 75. */
+    public static long of(long part, long whole) {
+        return of((double) part / whole);
+    }
+}

@@ -26,6 +26,19 @@ public final class ProgressServer {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
         server.createContext("/api/progress", exchange ->
                 send(exchange, "application/json", tracker.toJson().getBytes(StandardCharsets.UTF_8)));
+        // The page's libraries, packaged with the application so no internet connection is needed.
+        server.createContext("/lib/", exchange -> {
+            String name = exchange.getRequestURI().getPath().substring("/lib/".length());
+            try (InputStream file = name.matches("[\\w.-]+")
+                    ? ProgressServer.class.getResourceAsStream("/web/lib/" + name) : null) {
+                if (file == null) {
+                    exchange.sendResponseHeaders(HttpURLConnection.HTTP_NOT_FOUND, -1);
+                    exchange.close();
+                    return;
+                }
+                send(exchange, name.endsWith(".css") ? "text/css" : "text/javascript", file.readAllBytes());
+            }
+        });
         server.createContext("/", exchange -> {
             try (InputStream page = ProgressServer.class.getResourceAsStream("/web/index.html")) {
                 send(exchange, "text/html", page.readAllBytes());

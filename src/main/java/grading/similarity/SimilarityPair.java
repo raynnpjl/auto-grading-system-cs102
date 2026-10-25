@@ -1,5 +1,6 @@
 package grading.similarity;
 
+import grading.common.Percent;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,7 +55,7 @@ public record SimilarityPair(String questionId, String first, String second, dou
 
     /** The similarity as a whole percentage, such as 91. */
     public long percent() {
-        return Math.round(tiling * 100);
+        return Percent.of(tiling);
     }
 
     /** True when this pair involves the student. */

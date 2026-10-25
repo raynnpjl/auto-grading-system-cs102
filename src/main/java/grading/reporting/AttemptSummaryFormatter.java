@@ -1,6 +1,7 @@
 package grading.reporting;
 
 import grading.assessment.AssessmentDefinition;
+import grading.common.Percent;
 import grading.config.GradingSettings;
 import grading.config.PenaltySettings;
 import grading.config.SimilaritySettings;
@@ -32,7 +33,6 @@ import java.util.stream.Collectors;
 public final class AttemptSummaryFormatter {
 
     private static final int TOP_ITEMS = 5;
-    private static final double PERCENT = 100.0;
     // Hex digits of a style file's SHA-256 shown in the summary; enough to tell versions apart.
     private static final int FINGERPRINT_DIGITS = 16;
 
@@ -141,7 +141,7 @@ public final class AttemptSummaryFormatter {
             text.append("| ").append(question.id())
                     .append(" | ").append(results.isEmpty() ? "—" : PlainLanguage.marks(mean))
                     .append(" | ").append(run == 0 ? "—" : passed + " of " + run + " ("
-                            + Math.round(PERCENT * passed / run) + "%)")
+                            + Percent.of(passed, run) + "%)")
                     .append(" | ").append(problems).append(" |\n");
         }
         return text.toString();
@@ -223,11 +223,11 @@ public final class AttemptSummaryFormatter {
             text.append('\n');
         }
         SimilaritySettings similarity = settings.similarity();
-        text.append("Plagiarism check: reported at ").append(Math.round(similarity.threshold() * 100))
+        text.append("Plagiarism check: reported at ").append(Percent.of(similarity.threshold()))
                 .append("% similarity, flagged when both answers have at least ").append(similarity.minTokens())
                 .append(" tokens; winnowing k = ").append(similarity.kgramSize()).append(", w = ")
                 .append(similarity.windowSize()).append(", screening at ")
-                .append(Math.round(similarity.screenThreshold() * 100)).append("%; Greedy String Tiling minimum match ")
+                .append(Percent.of(similarity.screenThreshold())).append("%; Greedy String Tiling minimum match ")
                 .append(similarity.minMatchTokens()).append(" tokens.\n\n");
         text.append("Questions: ");
         text.append(AssessmentDefinition.QUESTIONS.stream()

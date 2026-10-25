@@ -1,5 +1,6 @@
 package grading.reporting;
 
+import grading.common.Percent;
 import grading.config.SimilaritySettings;
 import grading.similarity.SimilarityPair;
 import grading.similarity.SimilarityReport;
@@ -21,7 +22,7 @@ final class SimilarityReportFormatter {
             return text.append(report.problem()).append('\n').toString();
         }
         SimilaritySettings settings = report.settings();
-        long threshold = Math.round(settings.threshold() * 100);
+        long threshold = Percent.of(settings.threshold());
         List<SimilarityPair> pairs = report.pairs();
         if (pairs.isEmpty()) {
             text.append("No two students' answers to the same question are ").append(threshold)
@@ -47,7 +48,7 @@ final class SimilarityReportFormatter {
         }
         text.append("How answers are compared: comments, layout, variable names, literal values, imports and the ")
                 .append("template's code are ignored. Every pair is screened with ").append(report.algorithms().getFirst())
-                .append("; pairs scoring ").append(Math.round(settings.screenThreshold() * 100))
+                .append("; pairs scoring ").append(Percent.of(settings.screenThreshold()))
                 .append("% or more are scored with ").append(report.algorithms().getLast())
                 .append(", the share of both answers covered by matching runs of code. A high similarity is a reason ")
                 .append("to look, not proof of copying: short answers can only be written a few ways.\n");
