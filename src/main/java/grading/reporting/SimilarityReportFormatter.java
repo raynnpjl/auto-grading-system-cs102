@@ -47,7 +47,8 @@ final class SimilarityReportFormatter {
             text.append('\n');
         }
         text.append("How answers are compared: comments, layout, variable names, literal values, imports and the ")
-                .append("template's code are ignored. Every pair is screened with ").append(report.algorithms().getFirst())
+                .append("template's code are ignored. Every pair is screened with ")
+                .append(report.algorithms().getFirst())
                 .append("; pairs scoring ").append(Percent.of(settings.screenThreshold()))
                 .append("% or more are scored with ").append(report.algorithms().getLast())
                 .append(", the share of both answers covered by matching runs of code. A high similarity is a reason ")

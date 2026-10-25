@@ -26,8 +26,8 @@ final class RuntimeExceptionRule implements FeedbackRule {
 
     private static final Pattern HEADER = Pattern.compile(
             "^(?:Exception in thread \"[^\"]*\" )?((?:[\\w$]+\\.)*[\\w$]*(?:Exception|Error))(?::\\s*(.*))?$");
-    private static final Pattern FRAME = Pattern.compile("^\\s+at (?:[\\w$.]+/)?[\\w$.<>]+\\(([\\w$]+\\.java):(\\d+)\\)");
-    private static final String TESTER_SUFFIX = "Tester.java";
+    private static final Pattern FRAME = Pattern.compile(
+            "^\\s+at (?:[\\w$.]+/)?[\\w$.<>]+\\(([\\w$]+\\.java):(\\d+)\\)");
     private static final String EXCEPTION_DETAIL = "Exception";
 
     @Override
@@ -81,7 +81,8 @@ final class RuntimeExceptionRule implements FeedbackRule {
                 type = header.group(1);
                 message = header.group(2);
                 located = false;
-            } else if (type != null && !located && frame.find() && !frame.group(1).endsWith(TESTER_SUFFIX)
+            } else if (type != null && !located && frame.find()
+                    && !frame.group(1).endsWith(FeedbackContext.TESTER_SUFFIX)
                     && context.source(frame.group(1)).isPresent()) {
                 thrown.add(new Thrown(type, message, frame.group(1), Integer.parseInt(frame.group(2))));
                 located = true;

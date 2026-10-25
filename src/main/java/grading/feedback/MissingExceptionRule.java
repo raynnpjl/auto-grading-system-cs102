@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 final class MissingExceptionRule implements FeedbackRule {
 
     // The supplied testers print "Failed -> Expecting a Data Exception".
+    private static final String NOT_THROWN = "Exception not thrown";
     private static final Pattern EXPECTING = Pattern.compile("(?i)expecting\\s+(?:an?\\s+)?(.+)");
     private static final Pattern CATCH = Pattern.compile("\\bcatch\\s*\\(");
 
@@ -36,8 +37,8 @@ final class MissingExceptionRule implements FeedbackRule {
                     + " to throw `" + exception + "`, but it returned normally. ";
             Optional<FeedbackContext.Located> method = context.methodUnderTest(first);
             feedback.add(method.map(located -> locate(context, located, exception, intro))
-                    .orElse(new Feedback(context.questionId(), "Exception not thrown",
-                            intro + "Throw it with `throw new " + exception + "(...)` for this case.", Optional.empty())));
+                    .orElse(new Feedback(context.questionId(), NOT_THROWN, intro + "Throw it with `throw new "
+                            + exception + "(...)` for this case.", Optional.empty())));
             context.explain(tests);
         });
         return feedback;
@@ -51,15 +52,15 @@ final class MissingExceptionRule implements FeedbackRule {
         Optional<Integer> throwLine = file.firstLine(method,
                 Pattern.compile("\\bthrow\\s+new\\s+" + Pattern.quote(exception) + "\\b"));
         if (throwLine.isPresent()) {
-            return Feedback.at(context.questionId(), "Exception not thrown", intro + "This `throw` is not "
+            return Feedback.at(context.questionId(), NOT_THROWN, intro + "This `throw` is not "
                     + "reached for that input: check the condition that leads to it.", file.at(throwLine.get()));
         }
         Optional<Integer> catchLine = file.firstLine(method, CATCH);
         if (catchLine.isPresent()) {
-            return Feedback.at(context.questionId(), "Exception not thrown", intro + "This `catch` handles the "
+            return Feedback.at(context.questionId(), NOT_THROWN, intro + "This `catch` handles the "
                     + "problem itself; throw `new " + exception + "(...)` from it instead.", file.at(catchLine.get()));
         }
-        return Feedback.at(context.questionId(), "Exception not thrown", intro + "Add `throw new " + exception
+        return Feedback.at(context.questionId(), NOT_THROWN, intro + "Add `throw new " + exception
                 + "(...)` for this case, and declare it with `throws " + exception + "`.", file.at(method.start()));
     }
 }

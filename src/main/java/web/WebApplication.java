@@ -11,6 +11,7 @@ import static web.HttpResponses.sendJson;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import grading.common.FileTrees;
 import grading.common.Json;
 import grading.common.Messages;
 import grading.config.GradingSettings;
@@ -83,6 +84,17 @@ public final class WebApplication {
     public WebApplication() throws IOException {
         uploads = Files.createTempDirectory("auto-grader-web-");
         session = new GradingSession(settings, progress, uploads);
+        // Uploads and normalized copies are only needed while the app runs; remove them when it stops.
+        Runtime.getRuntime().addShutdownHook(new Thread(this::deleteUploads, "delete-uploads"));
+    }
+
+    private void deleteUploads() {
+        try {
+            FileTrees.delete(uploads);
+        } catch (IOException exception) {
+            System.err.println("Could not delete the temporary uploads in " + uploads + ": "
+                    + Messages.describe(exception));
+        }
     }
 
     public static void main(String[] args) throws IOException {

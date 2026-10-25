@@ -9,6 +9,7 @@ import java.time.Duration;
  * @param compileTimeout     longest a javac run may take
  * @param executionTimeout   longest a tester run may take before its unfinished test case is skipped
  * @param parallelStudents   students graded at the same time
+ * @param maxMemoryMegabytes memory each javac and tester JVM may use, in MB
  * @param maxOutputBytes     output kept from each process stream before the process is stopped
  * @param maxJavaFileBytes   largest student source file that is inspected and run
  * @param maxZipBytes        largest total size a submission ZIP may expand to
@@ -25,6 +26,7 @@ public record GradingSettings(
         Duration compileTimeout,
         Duration executionTimeout,
         int parallelStudents,
+        int maxMemoryMegabytes,
         int maxOutputBytes,
         long maxJavaFileBytes,
         long maxZipBytes,
@@ -49,6 +51,7 @@ public record GradingSettings(
                 Duration.ofSeconds(file.positiveNumber("grading.compile-timeout-seconds")),
                 Duration.ofSeconds(file.positiveNumber("grading.execution-timeout-seconds")),
                 Math.toIntExact(file.positiveNumber("grading.parallel-students")),
+                Math.toIntExact(file.positiveNumber("grading.max-memory-mb")),
                 Math.toIntExact(file.positiveNumber("grading.max-output-bytes")),
                 file.positiveNumber("submission.max-java-file-bytes"),
                 file.positiveNumber("submission.max-zip-bytes"),

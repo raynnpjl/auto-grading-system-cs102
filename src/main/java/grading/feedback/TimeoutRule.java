@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
  */
 final class TimeoutRule implements FeedbackRule {
 
+    private static final String INFINITE_LOOP = "Infinite loop";
     private static final Pattern SCANNER_LOOP = Pattern.compile("\\bwhile\\s*\\(\\s*(\\w+)\\.hasNext\\w*\\s*\\(");
     private static final Pattern COUNTER_LOOP = Pattern.compile("\\bwhile\\s*\\(\\s*(\\w+)\\s*(?:<=?|>=?|!=)");
 
@@ -34,7 +35,7 @@ final class TimeoutRule implements FeedbackRule {
                 : context.methodUnderTest(tests.getFirst());
         context.explain(tests);
         if (method.isEmpty()) {
-            return List.of(new Feedback(context.questionId(), "Infinite loop", intro + "A loop probably never ends: "
+            return List.of(new Feedback(context.questionId(), INFINITE_LOOP, intro + "A loop probably never ends: "
                     + "check that each loop's condition eventually becomes false.", Optional.empty()));
         }
         return List.of(explainLoop(context, method.get(), intro));
@@ -46,11 +47,11 @@ final class TimeoutRule implements FeedbackRule {
         for (int loop : loops) {
             Optional<String> reason = scannerNotAdvanced(file, loop).or(() -> counterNotChanged(file, loop));
             if (reason.isPresent()) {
-                return Feedback.at(context.questionId(), "Infinite loop", intro + reason.get(), file.at(loop));
+                return Feedback.at(context.questionId(), INFINITE_LOOP, intro + reason.get(), file.at(loop));
             }
         }
         if (!loops.isEmpty()) {
-            return Feedback.at(context.questionId(), "Infinite loop", intro + "Check this loop: something inside it "
+            return Feedback.at(context.questionId(), INFINITE_LOOP, intro + "Check this loop: something inside it "
                     + "must eventually make its condition false.", file.at(loops.getFirst()));
         }
         Pattern selfCall = Pattern.compile("\\b" + Pattern.quote(located.method().name()) + "\\s*\\(");
@@ -60,7 +61,7 @@ final class TimeoutRule implements FeedbackRule {
         return recursion
                 .map(line -> Feedback.at(context.questionId(), "Infinite recursion", intro + "The method calls "
                         + "itself here without reaching a case that stops: check the base case.", file.at(line)))
-                .orElse(Feedback.at(context.questionId(), "Infinite loop", intro + "The method never returned: "
+                .orElse(Feedback.at(context.questionId(), INFINITE_LOOP, intro + "The method never returned: "
                         + "check the loops in the methods it calls.", file.at(located.method().start())));
     }
 
@@ -110,7 +111,11 @@ final class TimeoutRule implements FeedbackRule {
                 shallowest = Math.min(shallowest, depth);
             }
             for (char c : code.toCharArray()) {
-                depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+                if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                }
             }
         }
         return shallowest;

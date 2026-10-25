@@ -36,7 +36,7 @@ final class TesterRunner {
         }
         log.accept("[" + questionId + "] Running " + compilation.testerClass());
         ProcessResult execution = runner.run(List.of(
-                GradingProcesses.jdkTool("java"), "-Xmx256m", "-XX:-CreateCoredumpOnCrash",
+                GradingProcesses.jdkTool("java"), GradingProcesses.maxHeap(), "-XX:-CreateCoredumpOnCrash",
                 "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
                 "-Djava.io.tmpdir=" + compilation.workspace(),
                 "-cp", compilation.classesDirectory().toString(),

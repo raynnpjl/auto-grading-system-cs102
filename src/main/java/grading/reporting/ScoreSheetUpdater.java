@@ -124,7 +124,7 @@ public final class ScoreSheetUpdater {
         }
     }
 
-    
+
     public byte[] filledContent(ScoreSheetPreview preview) {
         Map<Integer, String> numerators = new HashMap<>();
         preview.entries().forEach(entry -> numerators.put(entry.row(), entry.newScore()));

@@ -1,10 +1,11 @@
 package web;
 
+import grading.common.FileTrees;
+import grading.config.GradingSettings;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -21,7 +22,8 @@ final class UploadedFolder {
      * Extracts the upload into the destination folder.
      *
      * @return the folder that holds the uploaded content, or empty when the upload was empty or not a ZIP
-     * @throws IOException if an entry would be written outside the destination folder
+     * @throws IOException if an entry would be written outside the destination folder, or the ZIP is
+     *     larger or has more entries than the submission limits in grading.properties allow
      */
     static Optional<Path> extract(byte[] zipBytes, Path destination) throws IOException {
         if (unzip(zipBytes, destination) == 0) {
@@ -32,12 +34,16 @@ final class UploadedFolder {
 
     // Returns how many entries the ZIP held; a body that is not a ZIP holds none.
     private static int unzip(byte[] zipBytes, Path destination) throws IOException {
+        GradingSettings settings = GradingSettings.current();
         Path root = destination.toAbsolutePath().normalize();
         int entries = 0;
+        long totalBytes = 0;
         try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
-                entries++;
+                if (++entries > settings.maxZipEntries()) {
+                    throw new IOException("ZIP contains too many entries");
+                }
                 Path target = root.resolve(entry.getName()).normalize();
                 if (!target.startsWith(root)) {
                     throw new IOException("Unsafe path in the ZIP: " + entry.getName());
@@ -45,8 +51,7 @@ final class UploadedFolder {
                 if (entry.isDirectory()) {
                     Files.createDirectories(target);
                 } else {
-                    Files.createDirectories(target.getParent());
-                    Files.copy(zip, target, StandardCopyOption.REPLACE_EXISTING);
+                    totalBytes = FileTrees.copyZipEntry(zip, target, totalBytes, settings.maxZipBytes());
                 }
                 zip.closeEntry();
             }

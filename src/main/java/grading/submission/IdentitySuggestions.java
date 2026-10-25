@@ -1,6 +1,5 @@
 package grading.submission;
 
-import grading.config.GradingSettings;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -8,7 +7,7 @@ import java.util.Optional;
 
 /**
  * Suggests a student's name and email from their username, both for automatic header repair and
- * for pre-filling the identity dialog.
+ * for pre-filling the identity form on the page.
  */
 public final class IdentitySuggestions {
 
@@ -19,10 +18,6 @@ public final class IdentitySuggestions {
 
     public IdentitySuggestions(String emailDomain) {
         this.emailDomain = emailDomain;
-    }
-
-    public static IdentitySuggestions fromSettings() {
-        return new IdentitySuggestions(GradingSettings.current().emailDomain());
     }
 
     public static boolean isPlaceholder(String username) {

@@ -1,5 +1,6 @@
 package grading.submission;
 
+import grading.common.FileTrees;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,8 +16,6 @@ import java.util.zip.ZipInputStream;
  * are skipped and reported, and archives that expand too far are rejected.
  */
 final class ZipExtractor {
-
-    private static final int BUFFER_BYTES = 8192;
 
     private final long maxUncompressedBytes;
     private final int maxEntries;
@@ -34,7 +33,6 @@ final class ZipExtractor {
         try (InputStream input = new BufferedInputStream(Files.newInputStream(zipFile));
                 ZipInputStream zip = new ZipInputStream(input, StandardCharsets.UTF_8)) {
             ZipEntry entry;
-            byte[] buffer = new byte[BUFFER_BYTES];
             while ((entry = zip.getNextEntry()) != null) {
                 entries++;
                 if (entries > maxEntries) {
@@ -55,29 +53,10 @@ final class ZipExtractor {
                 if (entry.isDirectory()) {
                     Files.createDirectories(target);
                 } else {
-                    totalBytes = copyEntry(zip, target, buffer, totalBytes);
+                    totalBytes = FileTrees.copyZipEntry(zip, target, totalBytes, maxUncompressedBytes);
                 }
                 zip.closeEntry();
             }
         }
-    }
-
-    // Writes the current entry to target and returns the bytes extracted so far, stopping a ZIP bomb.
-    private long copyEntry(ZipInputStream zip, Path target, byte[] buffer, long totalBytes) throws IOException {
-        if (target.getParent() != null) {
-            Files.createDirectories(target.getParent());
-        }
-        long total = totalBytes;
-        try (var output = Files.newOutputStream(target)) {
-            int read;
-            while ((read = zip.read(buffer)) != -1) {
-                total += read;
-                if (total > maxUncompressedBytes) {
-                    throw new IOException("ZIP expands beyond the safe size limit");
-                }
-                output.write(buffer, 0, read);
-            }
-        }
-        return total;
     }
 }

@@ -19,7 +19,6 @@ final class CompilationErrorRule implements FeedbackRule {
 
     private static final Pattern IMPORT = Pattern.compile("^\\s*import\\s+([\\w.]+)\\.(\\w+)\\s*;");
     private static final Pattern CALL = Pattern.compile("\\b([a-z][\\w$]*)\\s*\\(");
-    private static final String TESTER_SUFFIX = "Tester.java";
     private static final int MAX_TESTER_ERRORS = 3;
 
     @Override
@@ -120,7 +119,7 @@ final class CompilationErrorRule implements FeedbackRule {
     }
 
     private static boolean isTester(JavacError error) {
-        return error.file().endsWith(TESTER_SUFFIX);
+        return error.file().endsWith(FeedbackContext.TESTER_SUFFIX);
     }
 
     private static boolean mentions(JavacError error, String className) {

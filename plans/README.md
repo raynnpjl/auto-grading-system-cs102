@@ -15,9 +15,9 @@ when done.
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
 | 001  | [Add compile.bat and run.bat for Windows](001-windows-start-scripts.md) | P1 | S | — | REJECTED (team choice: Windows commands will be documented with mvnw.cmd in the README instead) |
-| 002  | [End-to-end tests for the web routes](002-web-layer-tests.md) | P1 | M | — | TODO |
-| 003  | [Refuse uploads while grading is running](003-refuse-uploads-while-grading.md) | P1 | S | 002 | TODO |
-| 004  | [Move the grading session out of WebApplication](004-extract-grading-session.md) | P2 | M | 002, 003 | TODO |
+| 002  | [End-to-end tests for the web routes](002-web-layer-tests.md) | P1 | M | — | DONE (reviewed: branch `advisor/002-web-layer-tests` @ 088f98b, not merged) |
+| 003  | [Refuse uploads while grading is running](003-refuse-uploads-while-grading.md) | P1 | S | 002 | DONE (reviewed: branch `advisor/003-refuse-uploads-while-grading` @ 776ba86, includes 002, not merged) |
+| 004  | [Move the grading session out of WebApplication](004-extract-grading-session.md) | P2 | M | 002, 003 | DONE (reviewed: branch `advisor/004-extract-grading-session` @ 38db267, includes 002 and 003, not merged) |
 | 005  | [Up-to-date class design document with UML diagram](005-class-design-doc.md) | P2 | S | 004 | TODO (deferred: the team will do the UML once the project is complete) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)

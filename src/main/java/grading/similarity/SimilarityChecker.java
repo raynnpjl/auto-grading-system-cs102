@@ -103,8 +103,10 @@ public final class SimilarityChecker {
 
     private List<Token> templateTokens(String fileName) throws IOException {
         Optional<Path> template = templates.find(fileName);
-        return template.isEmpty() ? List.of()
-                : JavaTokenizer.tokenize(fileName, Files.readAllLines(template.get(), StandardCharsets.UTF_8), Set.of());
+        if (template.isEmpty()) {
+            return List.of();
+        }
+        return JavaTokenizer.tokenize(fileName, Files.readAllLines(template.get(), StandardCharsets.UTF_8), Set.of());
     }
 
     // Drops the runs of the student's tokens that Greedy String Tiling matches in the template.

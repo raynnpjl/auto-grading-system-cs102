@@ -3,7 +3,6 @@ package grading.session;
 import grading.common.Messages;
 import grading.config.GradingSettings;
 import grading.execution.JavaGradingService;
-import grading.execution.QuestionGradingResult;
 import grading.execution.StudentGradingResult;
 import grading.progress.ProgressTracker;
 import grading.reporting.AttemptReportWriter;
@@ -73,7 +72,7 @@ public final class GradingSession {
     }
 
     /** Validates an uploaded tester folder and keeps it. Refused (BUSY) while grading runs. */
-    public TesterValidationResult importTesters(Path folder) throws IOException {
+    public synchronized TesterValidationResult importTesters(Path folder) throws IOException {
         refuseWhileGrading();
         TesterValidationResult result = testerService.validate(folder);
         testers = result;
@@ -84,7 +83,7 @@ public final class GradingSession {
      * Prepares an uploaded batch and makes it the current one; returns the prepared submissions.
      * Refused (INVALID, NO_SUBMISSIONS) when no submission was found, and (BUSY) while grading runs.
      */
-    public List<SubmissionValidationResult> importSubmissions(Path input) throws IOException {
+    public synchronized List<SubmissionValidationResult> importSubmissions(Path input) throws IOException {
         refuseWhileGrading();
         Path workspace = Files.createDirectories(workFolder.resolve("normalized-" + UUID.randomUUID()));
         List<SubmissionValidationResult> prepared = submissionService.prepareBatch(input, workspace);
@@ -126,7 +125,7 @@ public final class GradingSession {
         for (StudentGradingResult result : latestResults) {
             Map<String, Double> scores = new LinkedHashMap<>();
             result.questions().forEach(question -> scores.put(question.questionId(), question.score()));
-            progress.showResult(result.username(), scores, needsReview(result));
+            progress.showResult(result.username(), scores, result.needsReview());
         }
         GradingAttempt attempt = latestAttempt;
         if (attempt != null) {
@@ -136,7 +135,7 @@ public final class GradingSession {
     }
 
     /** Starts grading every submission on a background thread. */
-    public void startGrading() {
+    public synchronized void startGrading() {
         TesterValidationResult testerResult = testers;
         List<SubmissionValidationResult> batch = submissions;
         if (testerResult == null || !testerResult.isValid()) {
@@ -155,7 +154,7 @@ public final class GradingSession {
     }
 
     /** Starts grading one student again on a background thread; everyone else keeps their result. */
-    public void regrade(String username) {
+    public synchronized void regrade(String username) {
         TesterValidationResult testerResult = testers;
         List<SubmissionValidationResult> batch = submissions;
         Optional<SubmissionValidationResult> student = batch.stream()
@@ -257,12 +256,6 @@ public final class GradingSession {
         if (grading.get()) {
             throw new SessionRefusal(SessionRefusal.Reason.BUSY, GRADING_RUNNING);
         }
-    }
-
-    // A student needs review when any question could not be graded normally, as in JavaGradingService.
-    private static boolean needsReview(StudentGradingResult result) {
-        return result.questions().stream()
-                .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
     }
 
     /** Forgets the latest attempt, so no link points at results from an older run. */

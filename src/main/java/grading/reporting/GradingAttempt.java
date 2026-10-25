@@ -102,6 +102,7 @@ public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, 
         try {
             return feedback.forStudent(submission, grading);
         } catch (RuntimeException exception) {
+            exception.printStackTrace();
             return List.of();
         }
     }
