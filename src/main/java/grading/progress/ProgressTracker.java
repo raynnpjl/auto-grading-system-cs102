@@ -2,6 +2,9 @@ package grading.progress;
 
 import grading.assessment.AssessmentDefinition;
 import grading.common.Json;
+import grading.feedback.Feedback;
+import grading.feedback.SourceLocation;
+import grading.similarity.SimilarityPair;
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionValidationResult;
 import java.time.Duration;
@@ -19,6 +22,7 @@ public final class ProgressTracker {
 
     private final Map<String, Row> rows = new LinkedHashMap<>();
     private final List<String> activity = new ArrayList<>();
+    private final List<SimilarityPair> similarPairs = new ArrayList<>();
     private boolean running;
     private Instant startedAt;
     private Instant endedAt;
@@ -33,6 +37,7 @@ public final class ProgressTracker {
     public synchronized void prepare(List<SubmissionValidationResult> submissions) {
         rows.clear();
         activity.clear();
+        similarPairs.clear();
         running = false;
         startedAt = null;
         endedAt = null;
@@ -43,10 +48,9 @@ public final class ProgressTracker {
             if (!submission.isReadyForGrading()) {
                 row.status = "skipped";
                 row.finished = true;
-            } else if (submission.correctedCount() > 0) {
-                row.status = "auto-fixed";
-                row.autoFixed = true;
             }
+            // Shown next to the status: the folder or headers were corrected, never the student's code.
+            row.formatFixed = submission.correctedCount() > 0;
             submission.findings().stream()
                     .filter(finding -> finding.severity() != FindingSeverity.INFO && !finding.corrected())
                     .forEach(finding -> row.issues.add(finding.message()));
@@ -92,7 +96,7 @@ public final class ProgressTracker {
     }
 
     /**
-     * Marks a student as done.
+     * Marks a student as done: graded, or graded but needing a person to check something.
      *
      * @param username  the student
      * @param hasErrors true if any question could not be graded normally
@@ -100,11 +104,81 @@ public final class ProgressTracker {
     public synchronized void studentFinished(String username, boolean hasErrors) {
         Row row = rows(username);
         row.finished = true;
-        if (hasErrors) {
-            row.status = "needs-review";
-        } else {
-            row.status = row.autoFixed ? "auto-fixed" : "graded";
+        row.status = hasErrors ? "needs-review" : "graded";
+    }
+
+    /**
+     * Shows the feedback on a student's mistakes in their row.
+     *
+     * @param username the student
+     * @param feedback the explanations, in question order
+     */
+    public synchronized void feedback(String username, List<Feedback> feedback) {
+        Row row = rows.get(username);
+        if (row != null) {
+            row.feedback = List.copyOf(feedback);
         }
+    }
+
+    /**
+     * Shows the pairs of similar answers. Students in a flagged pair are marked for review, with a note
+     * naming the other student; marks are unchanged.
+     *
+     * @param pairs every reported pair, flagged or not
+     */
+    public synchronized void similarity(List<SimilarityPair> pairs) {
+        similarPairs.clear();
+        similarPairs.addAll(pairs);
+        // Replaces the flags of an earlier run, so a regrade never leaves an old match behind.
+        rows.values().forEach(row -> row.flags.clear());
+        for (SimilarityPair pair : pairs) {
+            if (pair.flagged()) {
+                flag(pair.first(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.second());
+                flag(pair.second(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.first());
+            }
+        }
+    }
+
+    // A student no longer in the table, such as one renamed when their identity was confirmed, is skipped.
+    private void flag(String username, String note) {
+        Row row = rows.get(username);
+        if (row != null) {
+            row.flags.add(note);
+        }
+    }
+
+    /**
+     * Shows a result graded earlier, so the table keeps the other students' marks when the list of
+     * submissions is rebuilt, for example after a student's identity is confirmed.
+     *
+     * @param username    the student; ignored when they are no longer in the table
+     * @param scores      the marks of each question part
+     * @param needsReview true if any question could not be graded normally
+     */
+    public synchronized void showResult(String username, Map<String, Double> scores, boolean needsReview) {
+        Row row = rows.get(username);
+        if (row == null || row.status.equals("skipped")) {
+            return;
+        }
+        row.scores.putAll(scores);
+        row.finished = true;
+        row.status = needsReview ? "needs-review" : "graded";
+    }
+
+    /**
+     * Puts one student back in the queue to be graded again, keeping everyone else's results.
+     *
+     * @param username the student to regrade
+     */
+    public synchronized void regradeStarted(String username) {
+        Row row = rows(username);
+        row.status = "queued";
+        row.finished = false;
+        row.scores.clear();
+        row.feedback = List.of();
+        row.flags.clear();
+        startedAt = null;
+        endedAt = null;
     }
 
     /**
@@ -148,6 +222,18 @@ public final class ProgressTracker {
                 + ",\"students\":" + rows.values().stream().map(Row::toJson)
                         .collect(Collectors.joining(",", "[", "]"))
                 + ",\"activity\":" + Json.strings(activity)
+                + ",\"similarPairs\":" + Json.array(similarPairs.stream().map(ProgressTracker::pairJson).toList())
+                + "}";
+    }
+
+    private static String pairJson(SimilarityPair pair) {
+        return "{\"question\":" + Json.quote(pair.questionId())
+                + ",\"first\":" + Json.quote(pair.first())
+                + ",\"second\":" + Json.quote(pair.second())
+                + ",\"percent\":" + pair.percent()
+                + ",\"flagged\":" + pair.flagged()
+                + ",\"firstLines\":" + Json.quote(SimilarityPair.describe(pair.firstLines()))
+                + ",\"secondLines\":" + Json.quote(SimilarityPair.describe(pair.secondLines()))
                 + "}";
     }
 
@@ -167,10 +253,12 @@ public final class ProgressTracker {
     private static final class Row {
         final String username;
         String status = "queued";
-        boolean autoFixed;
+        boolean formatFixed;
         boolean finished;
         final Map<String, Double> scores = new LinkedHashMap<>();
         final List<String> issues = new ArrayList<>();
+        final List<String> flags = new ArrayList<>();
+        List<Feedback> feedback = List.of();
 
         Row(String username) {
             this.username = username;
@@ -180,13 +268,25 @@ public final class ProgressTracker {
             double total = scores.values().stream().mapToDouble(Double::doubleValue).sum();
             return "{"
                     + "\"username\":" + Json.quote(username)
-                    + ",\"status\":" + Json.quote(status)
+                    + ",\"status\":" + Json.quote(flags.isEmpty() ? status : "needs-review")
                     + ",\"finished\":" + finished
+                    + ",\"formatFixed\":" + formatFixed
                     + ",\"scores\":" + scores.entrySet().stream()
                             .map(entry -> Json.quote(entry.getKey()) + ":" + entry.getValue())
                             .collect(Collectors.joining(",", "{", "}"))
                     + ",\"total\":" + total
                     + ",\"issues\":" + Json.strings(issues)
+                    + ",\"flags\":" + Json.strings(flags)
+                    + ",\"feedback\":" + Json.array(feedback.stream().map(Row::feedbackJson).toList())
+                    + "}";
+        }
+
+        private static String feedbackJson(Feedback feedback) {
+            return "{\"question\":" + Json.quote(feedback.questionId())
+                    + ",\"kind\":" + Json.quote(feedback.kind())
+                    + ",\"where\":" + Json.quote(feedback.location().map(SourceLocation::label).orElse(""))
+                    + ",\"code\":" + Json.quote(feedback.location().map(SourceLocation::code).orElse(""))
+                    + ",\"message\":" + Json.quote(feedback.message())
                     + "}";
         }
     }

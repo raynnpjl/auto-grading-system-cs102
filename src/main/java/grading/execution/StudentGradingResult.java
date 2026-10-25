@@ -17,6 +17,11 @@ public record StudentGradingResult(String username, List<QuestionGradingResult> 
         questions = List.copyOf(questions);
     }
 
+    /** True when any question could not be graded normally, so a person should look at it. */
+    public boolean needsReview() {
+        return questions.stream().anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
+    }
+
     public double totalScore() {
         return questions.stream().mapToDouble(QuestionGradingResult::score).sum();
     }

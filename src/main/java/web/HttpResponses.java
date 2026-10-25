@@ -16,6 +16,8 @@ final class HttpResponses {
 
     private static final String JSON = "application/json; charset=UTF-8";
     private static final String HTML = "text/html; charset=UTF-8";
+    static final String CSS = "text/css; charset=UTF-8";
+    static final String JAVASCRIPT = "text/javascript; charset=UTF-8";
     private static final String PAGE = "/web/index.html";
 
     private HttpResponses() {
@@ -23,11 +25,19 @@ final class HttpResponses {
 
     /** Sends the single page of the web application. */
     static void sendPage(HttpExchange exchange) throws IOException {
-        try (InputStream input = HttpResponses.class.getResourceAsStream(PAGE)) {
+        sendResource(exchange, PAGE, HTML);
+    }
+
+    /**
+     * Sends a file packaged with the application, such as a library the page uses, so the page
+     * works without an internet connection.
+     */
+    static void sendResource(HttpExchange exchange, String resource, String type) throws IOException {
+        try (InputStream input = HttpResponses.class.getResourceAsStream(resource)) {
             if (input == null) {
-                throw new IOException(PAGE + " is missing from the build");
+                throw new IOException(resource + " is missing from the build");
             }
-            send(exchange, HttpURLConnection.HTTP_OK, HTML, input.readAllBytes(), Map.of());
+            send(exchange, HttpURLConnection.HTTP_OK, type, input.readAllBytes(), Map.of());
         }
     }
 

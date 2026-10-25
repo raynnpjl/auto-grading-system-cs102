@@ -22,7 +22,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -30,7 +29,6 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 
 /**
  * Checks each student's source files against the CS102 style guide with Checkstyle and scores
@@ -46,13 +44,14 @@ public final class StyleChecker {
 
     private final StyleSettings settings;
     private final StyleRules rules;
-    private final Map<String, Optional<Path>> templates = new HashMap<>();
+    private final Templates templates;
     private Configuration configuration;
     private String configurationProblem;
 
     public StyleChecker(StyleSettings settings) {
         this.settings = settings;
         this.rules = StyleRules.load(settings.rules());
+        this.templates = new Templates(settings.templateFolder());
     }
 
     public StyleRules rules() {
@@ -132,12 +131,11 @@ public final class StyleChecker {
             return FileStyleResult.couldNotAnalyse(fileName, "Could not analyse this file: it could not be read ("
                     + Messages.describe(exception) + ").");
         }
-        Optional<Path> template = template(fileName);
         Set<Integer> keptLines = Set.of();
         String note = "No template file was found for " + fileName + ", so every line was checked.";
-        if (template.isPresent()) {
+        if (templates.find(fileName).isPresent()) {
             try {
-                keptLines = TemplateLines.kept(lines, Files.readAllLines(template.get(), StandardCharsets.UTF_8));
+                keptLines = templates.keptLines(fileName, lines);
                 note = "";
             } catch (IOException exception) {
                 note = "The template file could not be read, so every line was checked.";
@@ -194,21 +192,6 @@ public final class StyleChecker {
             }
         }
         return Optional.ofNullable(configuration);
-    }
-
-    private synchronized Optional<Path> template(String fileName) {
-        return templates.computeIfAbsent(fileName.toLowerCase(Locale.ROOT), name -> {
-            if (!Files.isDirectory(settings.templateFolder())) {
-                return Optional.empty();
-            }
-            try (Stream<Path> files = Files.walk(settings.templateFolder())) {
-                return files.filter(Files::isRegularFile)
-                        .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).equals(name))
-                        .findFirst();
-            } catch (IOException exception) {
-                return Optional.empty();
-            }
-        });
     }
 
     private static String codeAt(List<String> lines, int line) {

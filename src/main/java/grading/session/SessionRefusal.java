@@ -1,0 +1,29 @@
+package grading.session;
+
+/**
+ * Thrown when the grading session cannot do what was asked right now, with a message for the user.
+ * The web layer turns the reason into an HTTP status.
+ */
+public final class SessionRefusal extends RuntimeException {
+
+    /** Why the request was refused. */
+    public enum Reason {
+        /** The request cannot be done with what has been uploaded, such as grading without testers. */
+        INVALID,
+        /** The named student is not in the batch. */
+        NOT_FOUND,
+        /** Grading is running; try again when it has finished. */
+        BUSY
+    }
+
+    private final Reason reason;
+
+    public SessionRefusal(Reason reason, String message) {
+        super(message);
+        this.reason = reason;
+    }
+
+    public Reason reason() {
+        return reason;
+    }
+}

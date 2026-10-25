@@ -29,7 +29,8 @@ public record StudentIdentity(String username, String name, String email) {
             throw new IllegalArgumentException(
                     "Username must contain only letters, numbers, dots, underscores, or hyphens.");
         }
-        if (name.length() < MIN_NAME_LENGTH || name.length() > MAX_NAME_LENGTH || name.contains("\n") || name.contains("\r")) {
+        if (name.length() < MIN_NAME_LENGTH || name.length() > MAX_NAME_LENGTH || name.contains("\n")
+                || name.contains("\r")) {
             throw new IllegalArgumentException("Student name must be between " + MIN_NAME_LENGTH + " and "
                     + MAX_NAME_LENGTH + " characters.");
         }

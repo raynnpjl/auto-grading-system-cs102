@@ -54,6 +54,26 @@ public final class ScoreSheet {
 
     public static ScoreSheet load(Path path) throws IOException {
         Path file = path.toAbsolutePath().normalize();
+        requireUsable(file);
+        byte[] bytes = Files.readAllBytes(file);
+        requireText(bytes, file);
+        String text = decode(bytes, file);
+        boolean byteOrderMark = text.startsWith(BYTE_ORDER_MARK);
+        if (byteOrderMark) {
+            text = text.substring(BYTE_ORDER_MARK.length());
+        }
+        List<CSVRecord> records = parse(text);
+        List<String> header = records.getFirst().toList();
+        int usernameColumn = requireColumn(header, USERNAME_COLUMN);
+        int numeratorColumn = requireColumn(header, NUMERATOR_COLUMN);
+        List<String> texts = recordTexts(text, records);
+        List<Row> rows = rows(records, header.size(), texts, usernameColumn);
+        return new ScoreSheet(file, bytes, byteOrderMark, header, texts.getFirst(), rows,
+                usernameColumn, numeratorColumn);
+    }
+
+    // The file must exist and be readable, and writable because the filled sheet is saved over a copy of it.
+    private static void requireUsable(Path file) throws ScoreSheetException {
         if (!Files.isRegularFile(file)) {
             throw new ScoreSheetException("The score sheet was not found: " + file);
         }
@@ -65,14 +85,9 @@ public final class ScoreSheet {
             throw new ScoreSheetException("The score sheet is read-only: " + file
                     + ". Make it writable (or save a writable copy), then import it again.");
         }
-        byte[] bytes = Files.readAllBytes(file);
-        requireText(bytes, file);
-        String text = decode(bytes, file);
-        boolean byteOrderMark = text.startsWith(BYTE_ORDER_MARK);
-        if (byteOrderMark) {
-            text = text.substring(BYTE_ORDER_MARK.length());
-        }
+    }
 
+    private static List<CSVRecord> parse(String text) throws ScoreSheetException {
         List<CSVRecord> records;
         try (CSVParser parser = CSVParser.parse(text, CSVFormat.DEFAULT)) {
             records = parser.getRecords();
@@ -83,19 +98,19 @@ public final class ScoreSheet {
         if (records.isEmpty()) {
             throw new ScoreSheetException("The score sheet is empty. Import the CSV exported from the LMS.");
         }
+        return records;
+    }
 
-        List<String> header = records.getFirst().toList();
-        int usernameColumn = requireColumn(header, USERNAME_COLUMN);
-        int numeratorColumn = requireColumn(header, NUMERATOR_COLUMN);
-
-        List<String> texts = recordTexts(text, records);
+    // Every row after the header; each must have as many values as the header and a username of its own.
+    private static List<Row> rows(List<CSVRecord> records, int columns, List<String> texts, int usernameColumn)
+            throws ScoreSheetException {
         List<Row> rows = new ArrayList<>();
         Set<String> usernames = new HashSet<>();
         for (int index = 1; index < records.size(); index++) {
             CSVRecord record = records.get(index);
-            if (record.size() != header.size()) {
+            if (record.size() != columns) {
                 throw new ScoreSheetException("Line " + record.getRecordNumber() + " has " + record.size()
-                        + " values, but the header has " + header.size()
+                        + " values, but the header has " + columns
                         + ". Repair the row in the LMS export, then import it again.");
             }
             Row row = new Row(record.toList(), texts.get(index));
@@ -106,8 +121,7 @@ public final class ScoreSheet {
             }
             rows.add(row);
         }
-        return new ScoreSheet(file, bytes, byteOrderMark, header, texts.getFirst(), rows,
-                usernameColumn, numeratorColumn);
+        return rows;
     }
 
     public Path path() {

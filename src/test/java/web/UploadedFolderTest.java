@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import grading.config.GradingSettings;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +43,21 @@ class UploadedFolderTest {
         byte[] zip = zipOf("../outside.txt");
 
         assertThrows(IOException.class, () -> UploadedFolder.extract(zip, temporary.resolve("upload")));
+    }
+
+    @Test
+    void refusesAZipWithMoreEntriesThanTheLimit() throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            for (int index = 0; index <= GradingSettings.current().maxZipEntries(); index++) {
+                zip.putNextEntry(new ZipEntry("upload/file" + index + ".txt"));
+                zip.closeEntry();
+            }
+        }
+
+        IOException refused = assertThrows(IOException.class,
+                () -> UploadedFolder.extract(bytes.toByteArray(), temporary));
+        assertEquals("ZIP contains too many entries", refused.getMessage());
     }
 
     private static byte[] zipOf(String entryName) throws IOException {

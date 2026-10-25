@@ -263,7 +263,8 @@ final class PdfReportRenderer {
                     natural[column] = Math.max(natural[column], width(runs, TABLE_SIZE) + 2 * CELL_PADDING);
                     for (Run run : runs) {
                         for (String word : run.text().split(" ")) {
-                            float wordWidth = run.font().getStringWidth(word) / GLYPH_UNITS * TABLE_SIZE + 2 * CELL_PADDING;
+                            float wordWidth = run.font().getStringWidth(word) / GLYPH_UNITS * TABLE_SIZE
+                                    + 2 * CELL_PADDING;
                             minimum[column] = Math.max(minimum[column], Math.min(wordWidth, WIDTH / 4));
                         }
                     }

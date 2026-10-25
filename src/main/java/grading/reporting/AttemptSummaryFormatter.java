@@ -1,8 +1,10 @@
 package grading.reporting;
 
 import grading.assessment.AssessmentDefinition;
+import grading.common.Percent;
 import grading.config.GradingSettings;
 import grading.config.PenaltySettings;
+import grading.config.SimilaritySettings;
 import grading.execution.QuestionGradingResult;
 import grading.scoring.ScoreBreakdown;
 import grading.style.StudentStyleResult;
@@ -31,7 +33,6 @@ import java.util.stream.Collectors;
 public final class AttemptSummaryFormatter {
 
     private static final int TOP_ITEMS = 5;
-    private static final double PERCENT = 100.0;
     // Hex digits of a style file's SHA-256 shown in the summary; enough to tell versions apart.
     private static final int FINGERPRINT_DIGITS = 16;
 
@@ -51,7 +52,10 @@ public final class AttemptSummaryFormatter {
         StudentReportFormatter.section(report, "Students needing a manual check",
                 () -> needingReview(attempt, reportFiles));
         StudentReportFormatter.section(report, "Other students", () -> others(attempt, reportFiles));
+        StudentReportFormatter.section(report, "Possible plagiarism",
+                () -> SimilarityReportFormatter.format(attempt.similarity()));
         StudentReportFormatter.section(report, "Class statistics", () -> statistics(attempt));
+        StudentReportFormatter.section(report, "Common mistakes", () -> CommonMistakesFormatter.format(attempt));
         StudentReportFormatter.section(report, "Configuration used", () -> configuration(attempt));
         if (!problems.isEmpty()) {
             StudentReportFormatter.section(report, "Problems while writing reports", () -> problems.stream()
@@ -137,7 +141,7 @@ public final class AttemptSummaryFormatter {
             text.append("| ").append(question.id())
                     .append(" | ").append(results.isEmpty() ? "—" : PlainLanguage.marks(mean))
                     .append(" | ").append(run == 0 ? "—" : passed + " of " + run + " ("
-                            + Math.round(PERCENT * passed / run) + "%)")
+                            + Percent.of(passed, run) + "%)")
                     .append(" | ").append(problems).append(" |\n");
         }
         return text.toString();
@@ -202,7 +206,17 @@ public final class AttemptSummaryFormatter {
                 .append(settings.style().rules()).append("` (SHA-256 ").append(fingerprint(settings.style().rules()))
                 .append("), template `").append(settings.style().templateFolder()).append("`, maximum score ")
                 .append(PlainLanguage.marks(settings.style().maxScore())).append(".\n\n");
-        StyleRules rules = attempt.styleRules();
+        text.append(styleRules(attempt.styleRules())).append(similarity(settings.similarity()));
+        text.append("Questions: ");
+        text.append(AssessmentDefinition.QUESTIONS.stream()
+                .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
+                .collect(Collectors.joining("; "))).append(".\n");
+        return text.toString();
+    }
+
+    // The style rules in effect with their weights, and the guide rules a person has to check.
+    private static String styleRules(StyleRules rules) {
+        StringBuilder text = new StringBuilder();
         rules.problem().ifPresent(problem -> text.append(problem).append("\n\n"));
         if (!rules.all().isEmpty()) {
             text.append("| Style rule | Guide section | Weight |\n|---|---|---|\n");
@@ -218,11 +232,15 @@ public final class AttemptSummaryFormatter {
                     .append(rule.text()).append('\n'));
             text.append('\n');
         }
-        text.append("Questions: ");
-        text.append(AssessmentDefinition.QUESTIONS.stream()
-                .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
-                .collect(Collectors.joining("; "))).append(".\n");
         return text.toString();
+    }
+
+    private static String similarity(SimilaritySettings similarity) {
+        return "Plagiarism check: reported at " + Percent.of(similarity.threshold())
+                + "% similarity, flagged when both answers have at least " + similarity.minTokens()
+                + " tokens; winnowing k = " + similarity.kgramSize() + ", w = " + similarity.windowSize()
+                + ", screening at " + Percent.of(similarity.screenThreshold())
+                + "%; Greedy String Tiling minimum match " + similarity.minMatchTokens() + " tokens.\n\n";
     }
 
     // The marks per passed test case that the testers actually awarded in this attempt.

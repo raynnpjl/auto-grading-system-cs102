@@ -1,0 +1,24 @@
+package grading.similarity;
+
+import java.util.List;
+
+/**
+ * How similar two token sequences are, and which parts match.
+ *
+ * @param score   similarity from 0 (nothing shared) to 1 (identical)
+ * @param matches runs of tokens found in both, as positions in each sequence
+ */
+record Comparison(double score, List<Match> matches) {
+
+    /** A run of {@code length} tokens starting at {@code first} in one sequence and {@code second} in the other. */
+    record Match(int first, int second, int length) {
+    }
+
+    Comparison {
+        matches = List.copyOf(matches);
+    }
+
+    static Comparison none() {
+        return new Comparison(0, List.of());
+    }
+}

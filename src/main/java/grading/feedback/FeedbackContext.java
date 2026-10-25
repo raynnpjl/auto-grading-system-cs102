@@ -1,0 +1,138 @@
+package grading.feedback;
+
+import grading.execution.QuestionGradingResult;
+import grading.execution.TestCaseResult;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * What the feedback rules know about one question of one student: the grading result, its test
+ * cases, and the student's source files. Rules record which test cases they explained, so a later,
+ * more general rule does not explain the same test case again.
+ */
+final class FeedbackContext {
+
+    /** A method found in one of the student's files. */
+    record Located(SourceFile file, MethodSpan method) {
+    }
+
+    /** Ends the name of every tester file, such as Q1aTester.java; the rest are the student's own files. */
+    static final String TESTER_SUFFIX = "Tester.java";
+
+    private final QuestionGradingResult result;
+    private final List<TestCaseResult> cases;
+    private final List<SourceFile> sources;
+    // The names of the classes given with the question, such as Shape, without .class.
+    private final List<String> givenClasses;
+    // The lines of each file as it was compiled, which may have extra header lines; keyed by file name.
+    private final Map<String, List<String>> compiledLines;
+    private final Set<Integer> explained = new HashSet<>();
+
+    FeedbackContext(QuestionGradingResult result, List<TestCaseResult> cases, List<SourceFile> sources,
+            List<String> givenClasses, Map<String, List<String>> compiledLines) {
+        this.result = result;
+        this.cases = List.copyOf(cases);
+        this.sources = List.copyOf(sources);
+        this.givenClasses = List.copyOf(givenClasses);
+        this.compiledLines = Map.copyOf(compiledLines);
+    }
+
+    String questionId() {
+        return result.questionId();
+    }
+
+    QuestionGradingResult result() {
+        return result;
+    }
+
+    List<TestCaseResult> cases() {
+        return cases;
+    }
+
+    List<SourceFile> sources() {
+        return sources;
+    }
+
+    List<String> givenClasses() {
+        return givenClasses;
+    }
+
+    /** The student's file with this name, ignoring letter case. */
+    Optional<SourceFile> source(String fileName) {
+        return sources.stream().filter(file -> file.name().equalsIgnoreCase(fileName)).findFirst();
+    }
+
+    /** The method with this name in any of the question's files. */
+    Optional<Located> method(String methodName) {
+        for (SourceFile file : sources) {
+            Optional<MethodSpan> method = file.method(methodName);
+            if (method.isPresent()) {
+                return Optional.of(new Located(file, method.get()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** The method a test case calls, read from its description, such as getAverageAge(...). */
+    Optional<Located> methodUnderTest(TestCaseResult test) {
+        return methodName(test).flatMap(this::method);
+    }
+
+    /** The test cases that failed, timed out or did not finish and no rule has explained yet. */
+    List<TestCaseResult> unexplainedFailures() {
+        return cases.stream()
+                .filter(test -> test.outcome() != TestCaseResult.Outcome.PASSED)
+                .filter(test -> !explained.contains(test.number()))
+                .toList();
+    }
+
+    void explain(TestCaseResult test) {
+        explained.add(test.number());
+    }
+
+    void explain(List<TestCaseResult> tests) {
+        tests.forEach(this::explain);
+    }
+
+    /**
+     * The location in the submitted file of a line reported by the compiler, whose numbers refer to
+     * the compiled copy.
+     */
+    Optional<SourceLocation> submittedLocation(String fileName, int compiledLine) {
+        Optional<SourceFile> file = source(fileName);
+        if (file.isEmpty()) {
+            return Optional.empty();
+        }
+        List<String> compiled = compiledLines.getOrDefault(file.get().name(), file.get().lines());
+        String code = compiledLine >= 1 && compiledLine <= compiled.size() ? compiled.get(compiledLine - 1) : "";
+        int line = file.get().lineMatching(code, compiledLine).orElse(compiledLine);
+        return Optional.of(file.get().at(line));
+    }
+
+    static Optional<String> methodName(TestCaseResult test) {
+        String description = test.description();
+        int bracket = description.indexOf('(');
+        if (bracket <= 0) {
+            return Optional.empty();
+        }
+        String name = description.substring(0, bracket).strip();
+        return name.matches("[A-Za-z_$][\\w$]*") ? Optional.of(name) : Optional.empty();
+    }
+
+    /** "Test 2" or "Tests 2, 3 and 5". */
+    static String testNumbers(List<TestCaseResult> tests) {
+        List<String> numbers = tests.stream().map(test -> String.valueOf(test.number())).toList();
+        if (numbers.size() == 1) {
+            return "Test " + numbers.getFirst();
+        }
+        return "Tests " + String.join(", ", numbers.subList(0, numbers.size() - 1)) + " and " + numbers.getLast();
+    }
+
+    /** The description of a test case in quotes, such as `getAverageAge(persons.txt, LEE)`. */
+    static String call(TestCaseResult test) {
+        return "`" + test.description() + "`";
+    }
+}

@@ -57,4 +57,12 @@ final class PlainLanguage {
         String oneLine = text.strip().replace("\r", "").replace("\n", " / ");
         return "`" + cell(oneLine).replace("`", "'") + "`";
     }
+
+    /** Code shown inline in running text, outside a table. */
+    static String inlineCode(String text) {
+        if (text == null || text.isBlank()) {
+            return "—";
+        }
+        return "`" + text.strip().replace("\r", "").replace("\n", " / ").replace("`", "'") + "`";
+    }
 }

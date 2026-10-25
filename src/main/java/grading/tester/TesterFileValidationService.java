@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -39,48 +40,67 @@ public final class TesterFileValidationService {
         if (folder == null || !Files.isDirectory(folder) || !Files.isReadable(folder)) {
             throw new IOException("Tester folder does not exist or is not readable");
         }
+        List<Path> javaFiles = javaFilesIn(folder);
+        List<SubmissionFinding> findings = new ArrayList<>();
+        Map<String, Path> validatedFiles = new LinkedHashMap<>();
+        for (String requiredFile : AssessmentDefinition.testerFiles()) {
+            findTester(requiredFile, javaFiles, findings).ifPresent(testerFile -> {
+                inspectTesterSource(testerFile, requiredFile, findings);
+                validatedFiles.put(requiredFile, testerFile);
+            });
+        }
+        reportExtraFiles(javaFiles, findings);
+        if (findings.isEmpty()) {
+            findings.add(finding(
+                    FindingSeverity.INFO,
+                    "TESTER_FILES_VALID",
+                    "All required tester files are present and readable."));
+        }
+        return new TesterValidationResult(folder, validatedFiles, findings);
+    }
 
-        List<Path> javaFiles;
+    // Every .java file in the folder and its subfolders, in a stable order.
+    private static List<Path> javaFilesIn(Path folder) throws IOException {
         try (Stream<Path> paths = Files.walk(folder)) {
-            javaFiles = paths
+            return paths
                     .filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java"))
                     .sorted(Comparator.comparing(path -> path.toString().toLowerCase(Locale.ROOT)))
                     .toList();
         }
+    }
 
-        List<SubmissionFinding> findings = new ArrayList<>();
-        Map<String, Path> validatedFiles = new LinkedHashMap<>();
-        for (String requiredFile : AssessmentDefinition.testerFiles()) {
-            List<Path> matches = javaFiles.stream()
-                    .filter(path -> path.getFileName().toString().equalsIgnoreCase(requiredFile))
-                    .toList();
-            if (matches.isEmpty()) {
-                findings.add(finding(
-                        FindingSeverity.ERROR,
-                        "MISSING_TESTER_FILE",
-                        "Required tester file " + requiredFile + " is missing."));
-                continue;
-            }
-            if (matches.size() > 1) {
-                findings.add(finding(
-                        FindingSeverity.ERROR,
-                        "DUPLICATE_TESTER_FILE",
-                        "Found multiple copies of " + requiredFile + "."));
-                continue;
-            }
-
-            Path testerFile = matches.getFirst();
-            if (!testerFile.getFileName().toString().equals(requiredFile)) {
-                findings.add(finding(
-                        FindingSeverity.ERROR,
-                        "WRONG_TESTER_FILENAME_CASE",
-                        testerFile.getFileName() + " must be named exactly " + requiredFile + "."));
-            }
-            inspectTesterSource(testerFile, requiredFile, findings);
-            validatedFiles.put(requiredFile, testerFile);
+    // The one file for a required tester; a missing, duplicated or wrongly cased name is reported.
+    private static Optional<Path> findTester(String requiredFile, List<Path> javaFiles,
+            List<SubmissionFinding> findings) {
+        List<Path> matches = javaFiles.stream()
+                .filter(path -> path.getFileName().toString().equalsIgnoreCase(requiredFile))
+                .toList();
+        if (matches.isEmpty()) {
+            findings.add(finding(
+                    FindingSeverity.ERROR,
+                    "MISSING_TESTER_FILE",
+                    "Required tester file " + requiredFile + " is missing."));
+            return Optional.empty();
         }
+        if (matches.size() > 1) {
+            findings.add(finding(
+                    FindingSeverity.ERROR,
+                    "DUPLICATE_TESTER_FILE",
+                    "Found multiple copies of " + requiredFile + "."));
+            return Optional.empty();
+        }
+        Path testerFile = matches.getFirst();
+        if (!testerFile.getFileName().toString().equals(requiredFile)) {
+            findings.add(finding(
+                    FindingSeverity.ERROR,
+                    "WRONG_TESTER_FILENAME_CASE",
+                    testerFile.getFileName() + " must be named exactly " + requiredFile + "."));
+        }
+        return Optional.of(testerFile);
+    }
 
+    private static void reportExtraFiles(List<Path> javaFiles, List<SubmissionFinding> findings) {
         long extraFiles = javaFiles.stream()
                 .filter(path -> AssessmentDefinition.testerFiles().stream().noneMatch(
                         required -> required.equalsIgnoreCase(path.getFileName().toString())))
@@ -91,14 +111,6 @@ public final class TesterFileValidationService {
                     "EXTRA_TESTER_FILES",
                     "Found " + extraFiles + " additional Java tester file(s)."));
         }
-
-        if (findings.isEmpty()) {
-            findings.add(finding(
-                    FindingSeverity.INFO,
-                    "TESTER_FILES_VALID",
-                    "All required tester files are present and readable."));
-        }
-        return new TesterValidationResult(folder, validatedFiles, findings);
     }
 
     private void inspectTesterSource(
@@ -137,7 +149,7 @@ public final class TesterFileValidationService {
         }
     }
 
-    private SubmissionFinding finding(FindingSeverity severity, String code, String message) {
+    private static SubmissionFinding finding(FindingSeverity severity, String code, String message) {
         return new SubmissionFinding(severity, code, message, false);
     }
 
