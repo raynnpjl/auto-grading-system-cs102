@@ -206,7 +206,17 @@ public final class AttemptSummaryFormatter {
                 .append(settings.style().rules()).append("` (SHA-256 ").append(fingerprint(settings.style().rules()))
                 .append("), template `").append(settings.style().templateFolder()).append("`, maximum score ")
                 .append(PlainLanguage.marks(settings.style().maxScore())).append(".\n\n");
-        StyleRules rules = attempt.styleRules();
+        text.append(styleRules(attempt.styleRules())).append(similarity(settings.similarity()));
+        text.append("Questions: ");
+        text.append(AssessmentDefinition.QUESTIONS.stream()
+                .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
+                .collect(Collectors.joining("; "))).append(".\n");
+        return text.toString();
+    }
+
+    // The style rules in effect with their weights, and the guide rules a person has to check.
+    private static String styleRules(StyleRules rules) {
+        StringBuilder text = new StringBuilder();
         rules.problem().ifPresent(problem -> text.append(problem).append("\n\n"));
         if (!rules.all().isEmpty()) {
             text.append("| Style rule | Guide section | Weight |\n|---|---|---|\n");
@@ -222,18 +232,15 @@ public final class AttemptSummaryFormatter {
                     .append(rule.text()).append('\n'));
             text.append('\n');
         }
-        SimilaritySettings similarity = settings.similarity();
-        text.append("Plagiarism check: reported at ").append(Percent.of(similarity.threshold()))
-                .append("% similarity, flagged when both answers have at least ").append(similarity.minTokens())
-                .append(" tokens; winnowing k = ").append(similarity.kgramSize()).append(", w = ")
-                .append(similarity.windowSize()).append(", screening at ")
-                .append(Percent.of(similarity.screenThreshold())).append("%; Greedy String Tiling minimum match ")
-                .append(similarity.minMatchTokens()).append(" tokens.\n\n");
-        text.append("Questions: ");
-        text.append(AssessmentDefinition.QUESTIONS.stream()
-                .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
-                .collect(Collectors.joining("; "))).append(".\n");
         return text.toString();
+    }
+
+    private static String similarity(SimilaritySettings similarity) {
+        return "Plagiarism check: reported at " + Percent.of(similarity.threshold())
+                + "% similarity, flagged when both answers have at least " + similarity.minTokens()
+                + " tokens; winnowing k = " + similarity.kgramSize() + ", w = " + similarity.windowSize()
+                + ", screening at " + Percent.of(similarity.screenThreshold())
+                + "%; Greedy String Tiling minimum match " + similarity.minMatchTokens() + " tokens.\n\n";
     }
 
     // The marks per passed test case that the testers actually awarded in this attempt.

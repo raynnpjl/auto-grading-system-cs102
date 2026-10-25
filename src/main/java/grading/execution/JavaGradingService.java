@@ -197,15 +197,6 @@ public final class JavaGradingService {
         return result;
     }
 
-    private static String statusOf(SubmissionValidationResult submission, List<QuestionGradingResult> questions) {
-        boolean problems = questions.stream()
-                .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
-        if (problems) {
-            return "needs-review";
-        }
-        return submission.correctedCount() > 0 ? "auto-fixed" : "graded";
-    }
-
     /**
      * Grades every submission whose owner is confirmed, several students at a time,
      * and returns the

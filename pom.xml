@@ -12,7 +12,6 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>21</maven.compiler.release>
-        <javafx.version>21.0.12</javafx.version>
         <junit.version>5.14.0</junit.version>
         <commons-csv.version>1.14.1</commons-csv.version>
         <checkstyle.version>14.1.0</checkstyle.version>
@@ -24,16 +23,6 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-csv</artifactId>
             <version>${commons-csv.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-controls</artifactId>
-            <version>${javafx.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.openjfx</groupId>
-            <artifactId>javafx-fxml</artifactId>
-            <version>${javafx.version}</version>
         </dependency>
         <!-- PDF grading reports. -->
         <dependency>
@@ -68,18 +57,16 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.4</version>
-                <configuration>
-                    <!-- JavaFX can start only once per JVM, so each UI test class gets a fresh JVM. -->
-                    <reuseForks>false</reuseForks>
-                </configuration>
             </plugin>
+            <!-- ./mvnw exec:java starts the web application (run.sh). -->
             <plugin>
-                <groupId>org.openjfx</groupId>
-                <artifactId>javafx-maven-plugin</artifactId>
-                <version>0.0.8</version>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
                 <configuration>
-                    <!-- <mainClass>ui.AutoGradingApplication</mainClass> -->
                     <mainClass>web.WebApplication</mainClass>
+                    <!-- "compile" includes the Checkstyle jar from lib/, which the default "runtime" leaves out. -->
+                    <classpathScope>compile</classpathScope>
                 </configuration>
             </plugin>
         </plugins>

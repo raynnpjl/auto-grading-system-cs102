@@ -55,22 +55,29 @@ final class ZipExtractor {
                 if (entry.isDirectory()) {
                     Files.createDirectories(target);
                 } else {
-                    if (target.getParent() != null) {
-                        Files.createDirectories(target.getParent());
-                    }
-                    try (var output = Files.newOutputStream(target)) {
-                        int read;
-                        while ((read = zip.read(buffer)) != -1) {
-                            totalBytes += read;
-                            if (totalBytes > maxUncompressedBytes) {
-                                throw new IOException("ZIP expands beyond the safe size limit");
-                            }
-                            output.write(buffer, 0, read);
-                        }
-                    }
+                    totalBytes = copyEntry(zip, target, buffer, totalBytes);
                 }
                 zip.closeEntry();
             }
         }
+    }
+
+    // Writes the current entry to target and returns the bytes extracted so far, stopping a ZIP bomb.
+    private long copyEntry(ZipInputStream zip, Path target, byte[] buffer, long totalBytes) throws IOException {
+        if (target.getParent() != null) {
+            Files.createDirectories(target.getParent());
+        }
+        long total = totalBytes;
+        try (var output = Files.newOutputStream(target)) {
+            int read;
+            while ((read = zip.read(buffer)) != -1) {
+                total += read;
+                if (total > maxUncompressedBytes) {
+                    throw new IOException("ZIP expands beyond the safe size limit");
+                }
+                output.write(buffer, 0, read);
+            }
+        }
+        return total;
     }
 }

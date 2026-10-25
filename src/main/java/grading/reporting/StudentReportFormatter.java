@@ -134,7 +134,7 @@ public final class StudentReportFormatter {
     private static String questions(StudentOutcome student) {
         if (student.grading() == null) {
             return "This submission was not graded in this attempt, so there are no test results. "
-                    + "Confirm the student's identity (Resolve issues) and grade again.\n";
+                    + "Confirm the student's identity on the grading page, then grade them.\n";
         }
         StringBuilder text = new StringBuilder();
         for (AssessmentDefinition.Question question : AssessmentDefinition.QUESTIONS) {
@@ -247,36 +247,47 @@ public final class StudentReportFormatter {
         if (!style.notes().isEmpty()) {
             text.append('\n');
         }
-        for (FileStyleResult file : style.files()) {
-            text.append("### ").append(file.fileName()).append("\n\n");
-            if (!file.analysed()) {
-                text.append("**Could not analyse.** ").append(file.note()).append("\n\n");
-                continue;
-            }
-            text.append(file.violations().size()).append(" violation(s); ").append(file.templateLinesKept())
-                    .append(" template line(s) not checked.");
-            if (!file.note().isBlank()) {
-                text.append(' ').append(file.note());
-            }
-            text.append("\n\n");
-            if (!file.violations().isEmpty()) {
-                text.append("| Line | Guide section | Problem | Code |\n|---|---|---|---|\n");
-                for (StyleViolation violation : file.violations()) {
-                    text.append("| ").append(violation.line() == 0 ? "file" : violation.line())
-                            .append(" | ").append(PlainLanguage.cell(violation.rule().section()))
-                            .append(" | ").append(PlainLanguage.cell(violation.message()))
-                            .append(violation.rule().heuristic() ? " *(heuristic: please confirm)*" : "")
-                            .append(" | ").append(PlainLanguage.code(violation.code())).append(" |\n");
-                }
-                text.append('\n');
-            }
+        style.files().forEach(file -> text.append(fileStyle(file)));
+        text.append(uncheckedRules(rules));
+        return text.toString();
+    }
+
+    // One file's style results: its violations as a table, or why it could not be analysed.
+    private static String fileStyle(FileStyleResult file) {
+        StringBuilder text = new StringBuilder("### ").append(file.fileName()).append("\n\n");
+        if (!file.analysed()) {
+            return text.append("**Could not analyse.** ").append(file.note()).append("\n\n").toString();
         }
-        if (!rules.unchecked().isEmpty()) {
-            text.append("### Not automatically checked\n\nThese guide rules need a person to check them:\n\n");
-            for (StyleRules.UncheckedRule rule : rules.unchecked()) {
-                text.append("- ").append(rule.section().isBlank() ? "" : "Section " + rule.section() + ": ")
-                        .append(rule.text()).append('\n');
+        text.append(file.violations().size()).append(" violation(s); ").append(file.templateLinesKept())
+                .append(" template line(s) not checked.");
+        if (!file.note().isBlank()) {
+            text.append(' ').append(file.note());
+        }
+        text.append("\n\n");
+        if (!file.violations().isEmpty()) {
+            text.append("| Line | Guide section | Problem | Code |\n|---|---|---|---|\n");
+            for (StyleViolation violation : file.violations()) {
+                text.append("| ").append(violation.line() == 0 ? "file" : violation.line())
+                        .append(" | ").append(PlainLanguage.cell(violation.rule().section()))
+                        .append(" | ").append(PlainLanguage.cell(violation.message()))
+                        .append(violation.rule().heuristic() ? " *(heuristic: please confirm)*" : "")
+                        .append(" | ").append(PlainLanguage.code(violation.code())).append(" |\n");
             }
+            text.append('\n');
+        }
+        return text.toString();
+    }
+
+    // The guide rules that a person has to check, because no automatic check covers them.
+    private static String uncheckedRules(StyleRules rules) {
+        if (rules.unchecked().isEmpty()) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder(
+                "### Not automatically checked\n\nThese guide rules need a person to check them:\n\n");
+        for (StyleRules.UncheckedRule rule : rules.unchecked()) {
+            text.append("- ").append(rule.section().isBlank() ? "" : "Section " + rule.section() + ": ")
+                    .append(rule.text()).append('\n');
         }
         return text.toString();
     }

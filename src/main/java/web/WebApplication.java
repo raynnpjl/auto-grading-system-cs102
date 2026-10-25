@@ -15,6 +15,7 @@ import grading.common.Json;
 import grading.common.Messages;
 import grading.config.GradingSettings;
 import grading.execution.JavaGradingService;
+import grading.execution.QuestionGradingResult;
 import grading.execution.StudentGradingResult;
 import grading.progress.ProgressTracker;
 import grading.reporting.AttemptReportWriter;
@@ -37,6 +38,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,12 +88,15 @@ public final class WebApplication {
             Map.entry("POST /api/submissions", this::importSubmissions),
             Map.entry("POST /api/identity", this::confirmIdentity),
             Map.entry("POST /api/grade", this::startGrading),
+            Map.entry("POST /api/grade/student", this::regradeStudent),
             Map.entry("POST /api/scoresheet", this::uploadScoreSheet));
     private final Path uploads;
 
     private volatile TesterValidationResult testers;
     private volatile List<SubmissionValidationResult> submissions = List.of();
     private volatile Path submissionWorkspace;
+    // Every student's latest grading result, kept so one student can be regraded without the others.
+    private volatile List<StudentGradingResult> latestResults = List.of();
     // The latest finished attempt. Cleared whenever the submissions change, so links never show stale results.
     private volatile GradingAttempt latestAttempt;
     private volatile String latestAttemptId;
@@ -172,6 +177,7 @@ public final class WebApplication {
         }
         submissions = List.copyOf(prepared);
         submissionWorkspace = workspace;
+        latestResults = List.of();
         clearAttempt();
         progress.prepare(prepared);
 
@@ -224,8 +230,18 @@ public final class WebApplication {
         List<SubmissionValidationResult> list = new ArrayList<>(submissions);
         list.replaceAll(submission -> submission == current ? updated : submission);
         submissions = List.copyOf(list);
-        clearAttempt();
         progress.prepare(submissions);
+        // Everyone else keeps their marks; the confirmed student is queued, ready to be regraded.
+        for (StudentGradingResult result : latestResults) {
+            Map<String, Double> scores = new LinkedHashMap<>();
+            result.questions().forEach(question -> scores.put(question.questionId(), question.score()));
+            progress.showResult(result.username(), scores, needsReview(result));
+        }
+        GradingAttempt attempt = latestAttempt;
+        if (attempt != null) {
+            attempt.students().forEach(student -> progress.feedback(student.username(), student.feedback()));
+            progress.similarity(attempt.similarity().pairs());
+        }
     }
 
     /** POST /api/grade: starts grading in the background and returns straight away. */
@@ -247,20 +263,59 @@ public final class WebApplication {
 
         clearAttempt();
         progress.prepare(batch);
-        new Thread(() -> runGrading(batch, testerResult), "grading-runner").start();
+        new Thread(() -> runGrading(batch, batch, List.of(), testerResult), "grading-runner").start();
         sendJson(exchange, HTTP_ACCEPTED, "{\"started\":true}");
     }
 
-    /** Does the grading. Runs in its own thread so the page can keep asking for progress. */
-    private void runGrading(List<SubmissionValidationResult> batch, TesterValidationResult testerResult) {
+    /** POST /api/grade/student?username=...: grades one student again; everyone else keeps their result. */
+    private void regradeStudent(HttpExchange exchange) throws IOException {
+        TesterValidationResult testerResult = testers;
+        List<SubmissionValidationResult> batch = submissions;
+        String username = HttpResponses.query(exchange).getOrDefault("username", "");
+        Optional<SubmissionValidationResult> student = batch.stream()
+                .filter(submission -> submission.username().equals(username))
+                .findFirst();
+        if (testerResult == null || !testerResult.isValid()) {
+            sendError(exchange, HTTP_BAD_REQUEST, "Upload valid tester files first.");
+            return;
+        }
+        if (student.isEmpty()) {
+            sendError(exchange, HTTP_NOT_FOUND, "Unknown student.");
+            return;
+        }
+        if (!student.get().isReadyForGrading()) {
+            sendError(exchange, HTTP_BAD_REQUEST, "Confirm this student's identity before grading them.");
+            return;
+        }
+        if (!grading.compareAndSet(false, true)) {
+            sendError(exchange, HTTP_CONFLICT, "Grading is already running.");
+            return;
+        }
+
+        List<StudentGradingResult> others = latestResults.stream()
+                .filter(result -> !result.username().equals(username))
+                .toList();
+        clearAttempt();
+        progress.regradeStarted(username);
+        new Thread(() -> runGrading(batch, List.of(student.get()), others, testerResult), "grading-runner").start();
+        sendJson(exchange, HTTP_ACCEPTED, "{\"started\":true}");
+    }
+
+    /**
+     * Grades {@code toGrade}, adds the results kept from earlier, and writes a new attempt for the whole
+     * batch. Runs in its own thread so the page can keep asking for progress.
+     */
+    private void runGrading(List<SubmissionValidationResult> batch, List<SubmissionValidationResult> toGrade,
+            List<StudentGradingResult> kept, TesterValidationResult testerResult) {
         Consumer<String> log = message -> {
             System.out.println(message);
             progress.log(message);
         };
         try {
             LocalDateTime started = LocalDateTime.now();
-            List<StudentGradingResult> results =
-                    new JavaGradingService(log, progress).gradeBatch(batch, testerResult);
+            List<StudentGradingResult> results = new ArrayList<>(kept);
+            results.addAll(new JavaGradingService(log, progress).gradeBatch(toGrade, testerResult));
+            latestResults = List.copyOf(results);
             GradingAttempt attempt = GradingAttempt.assemble(started, testerResult.source(), uploads,
                     settings, batch, results, new StyleChecker(settings.style()));
             attempt.students().forEach(student -> progress.feedback(student.username(), student.feedback()));
@@ -272,8 +327,9 @@ public final class WebApplication {
             latestAttemptId = written.attemptId();
             latestAttemptFolder = written.folder().orElse(null);
             latestAttempt = attempt;
-        } catch (Exception exception) {
-            log.accept("Grading failed: " + exception.getMessage());
+        } catch (Exception | LinkageError exception) {
+            // LinkageError: a library the grader needs is missing, which must not fail silently.
+            log.accept("Grading failed: " + Messages.describe(exception));
             exception.printStackTrace();
         } finally {
             progress.finish();
@@ -281,7 +337,7 @@ public final class WebApplication {
         }
     }
 
-    /** GET /api/reports/zip: the attempt folder as one ZIP, the same file the JavaFX "Save reports" button writes. */
+    /** GET /api/reports/zip: the attempt folder, with summary.pdf and every student report, as one ZIP. */
     private void zipReports(HttpExchange exchange) throws IOException {
         Path folder = latestAttemptFolder;
         if (folder == null || !Files.isDirectory(folder)) {
@@ -364,6 +420,12 @@ public final class WebApplication {
                 + ",\"reportsReady\":" + (latestAttemptFolder != null)
                 + ",\"scoreSheetName\":" + Json.quote(scoreSheet == null ? "" : scoreSheet.name())
                 + "," + base.substring(1);
+    }
+
+    // A student needs review when any question could not be graded normally, as in JavaGradingService.
+    private static boolean needsReview(StudentGradingResult result) {
+        return result.questions().stream()
+                .anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
     }
 
     /** Forgets the latest attempt, so no link points at results from an older run. */

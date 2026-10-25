@@ -48,10 +48,9 @@ public final class ProgressTracker {
             if (!submission.isReadyForGrading()) {
                 row.status = "skipped";
                 row.finished = true;
-            } else if (submission.correctedCount() > 0) {
-                row.status = "auto-fixed";
-                row.autoFixed = true;
             }
+            // Shown next to the status: the folder or headers were corrected, never the student's code.
+            row.formatFixed = submission.correctedCount() > 0;
             submission.findings().stream()
                     .filter(finding -> finding.severity() != FindingSeverity.INFO && !finding.corrected())
                     .forEach(finding -> row.issues.add(finding.message()));
@@ -97,7 +96,7 @@ public final class ProgressTracker {
     }
 
     /**
-     * Marks a student as done.
+     * Marks a student as done: graded, or graded but needing a person to check something.
      *
      * @param username  the student
      * @param hasErrors true if any question could not be graded normally
@@ -105,11 +104,7 @@ public final class ProgressTracker {
     public synchronized void studentFinished(String username, boolean hasErrors) {
         Row row = rows(username);
         row.finished = true;
-        if (hasErrors) {
-            row.status = "needs-review";
-        } else {
-            row.status = row.autoFixed ? "auto-fixed" : "graded";
-        }
+        row.status = hasErrors ? "needs-review" : "graded";
     }
 
     /**
@@ -119,7 +114,10 @@ public final class ProgressTracker {
      * @param feedback the explanations, in question order
      */
     public synchronized void feedback(String username, List<Feedback> feedback) {
-        rows(username).feedback = List.copyOf(feedback);
+        Row row = rows.get(username);
+        if (row != null) {
+            row.feedback = List.copyOf(feedback);
+        }
     }
 
     /**
@@ -131,6 +129,8 @@ public final class ProgressTracker {
     public synchronized void similarity(List<SimilarityPair> pairs) {
         similarPairs.clear();
         similarPairs.addAll(pairs);
+        // Replaces the flags of an earlier run, so a regrade never leaves an old match behind.
+        rows.values().forEach(row -> row.flags.clear());
         for (SimilarityPair pair : pairs) {
             if (pair.flagged()) {
                 flag(pair.first(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.second());
@@ -139,10 +139,46 @@ public final class ProgressTracker {
         }
     }
 
+    // A student no longer in the table, such as one renamed when their identity was confirmed, is skipped.
     private void flag(String username, String note) {
+        Row row = rows.get(username);
+        if (row != null) {
+            row.flags.add(note);
+        }
+    }
+
+    /**
+     * Shows a result graded earlier, so the table keeps the other students' marks when the list of
+     * submissions is rebuilt, for example after a student's identity is confirmed.
+     *
+     * @param username    the student; ignored when they are no longer in the table
+     * @param scores      the marks of each question part
+     * @param needsReview true if any question could not be graded normally
+     */
+    public synchronized void showResult(String username, Map<String, Double> scores, boolean needsReview) {
+        Row row = rows.get(username);
+        if (row == null || row.status.equals("skipped")) {
+            return;
+        }
+        row.scores.putAll(scores);
+        row.finished = true;
+        row.status = needsReview ? "needs-review" : "graded";
+    }
+
+    /**
+     * Puts one student back in the queue to be graded again, keeping everyone else's results.
+     *
+     * @param username the student to regrade
+     */
+    public synchronized void regradeStarted(String username) {
         Row row = rows(username);
-        row.status = "needs-review";
-        row.flags.add(note);
+        row.status = "queued";
+        row.finished = false;
+        row.scores.clear();
+        row.feedback = List.of();
+        row.flags.clear();
+        startedAt = null;
+        endedAt = null;
     }
 
     /**
@@ -217,7 +253,7 @@ public final class ProgressTracker {
     private static final class Row {
         final String username;
         String status = "queued";
-        boolean autoFixed;
+        boolean formatFixed;
         boolean finished;
         final Map<String, Double> scores = new LinkedHashMap<>();
         final List<String> issues = new ArrayList<>();
@@ -232,8 +268,9 @@ public final class ProgressTracker {
             double total = scores.values().stream().mapToDouble(Double::doubleValue).sum();
             return "{"
                     + "\"username\":" + Json.quote(username)
-                    + ",\"status\":" + Json.quote(status)
+                    + ",\"status\":" + Json.quote(flags.isEmpty() ? status : "needs-review")
                     + ",\"finished\":" + finished
+                    + ",\"formatFixed\":" + formatFixed
                     + ",\"scores\":" + scores.entrySet().stream()
                             .map(entry -> Json.quote(entry.getKey()) + ":" + entry.getValue())
                             .collect(Collectors.joining(",", "{", "}"))

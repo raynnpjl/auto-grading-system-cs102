@@ -1,5 +1,6 @@
 package grading.submission;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -24,6 +25,57 @@ public record SubmissionFinding(
             "USERNAME_UNKNOWN",
             "HEADER_IDENTITY_MISMATCH",
             "CONFLICTING_HEADER_IDENTITIES");
+
+    private static final String CONFIRM_IDENTITY = "This student is skipped until resolved. Under \"Confirm the "
+            + "identity of skipped students\" on the grading page, ";
+
+    private static final String DEPENDENCY_STEP = "The other questions are still graded and the question that needs "
+            + "this file scores 0. Restore the named support class or test data file from the assessment materials "
+            + "to the stated Q folder, ensure it is readable, then import the submissions again.";
+
+    private static final String VERIFIED_IDENTITY_STEP = CONFIRM_IDENTITY + "enter the single identity verified "
+            + "against the LMS record and save, to replace the inconsistent normalized headers automatically.";
+
+    // What the marker can do about each error that could not be corrected automatically.
+    private static final Map<String, String> NEXT_STEPS = Map.ofEntries(
+            Map.entry("MISSING_DEPENDENCY", DEPENDENCY_STEP),
+            Map.entry("DEPENDENCY_UNREADABLE", DEPENDENCY_STEP),
+            Map.entry("MISSING_JAVA_FILE", "The other questions are still graded and this question scores 0. If the "
+                    + "file exists elsewhere, place it in the stated Q folder and import the submissions again."),
+            Map.entry("MISSING_HEADER_EMAIL", CONFIRM_IDENTITY + "enter the student's username, name and email from "
+                    + "the LMS or class roster and save; every normalized header is updated automatically."),
+            Map.entry("USERNAME_UNKNOWN", CONFIRM_IDENTITY + "enter the identity shown in the LMS upload record or "
+                    + "class roster and save. The application renames the normalized copy and updates every header."),
+            Map.entry("HEADER_IDENTITY_MISMATCH", VERIFIED_IDENTITY_STEP),
+            Map.entry("CONFLICTING_HEADER_IDENTITIES", VERIFIED_IDENTITY_STEP),
+            Map.entry("HEADER_UNREADABLE", "Open the named Java file in an editor, confirm it is genuine source code, "
+                    + "save it as UTF-8, and import the submission again."),
+            Map.entry("JAVA_FILE_TOO_LARGE", "The file was not run and its question scores 0. Inspect it manually "
+                    + "before opening or running it. If it is not a normal Java source file, request a clean "
+                    + "resubmission."),
+            Map.entry("JAVA_FILE_UNREADABLE", "Its question scores 0. Restore read access or extract/copy the named "
+                    + "source file manually into the correct Q folder, then import the submission again."),
+            Map.entry("UNSAFE_ZIP_ENTRY", "Do not use the skipped entry. Inspect the original archive separately and "
+                    + "request a clean resubmission if the required source was stored in that unsafe path."),
+            Map.entry("SUBMISSION_UNREADABLE", "Open or extract this submission manually, repair the archive/folder "
+                    + "or request a replacement, then import it again. The remaining batch can still be graded."),
+            Map.entry("MISSING_TESTER_FILE", "Add the named official tester file to the selected Tester-Files "
+                    + "folder, then import that folder again."),
+            Map.entry("DUPLICATE_TESTER_FILE", "Keep the approved tester version and remove or move the duplicate "
+                    + "outside Tester-Files, then validate the folder again."),
+            Map.entry("WRONG_TESTER_FILENAME_CASE", "Rename the file exactly as shown, preserving capitalization, "
+                    + "then import Tester-Files again."),
+            Map.entry("WRONG_TESTER_CLASS", "Correct the public class name so it exactly matches the Java filename, "
+                    + "then validate again."),
+            Map.entry("MISSING_TESTER_MAIN", "Restore the official tester implementation containing its static main "
+                    + "method, then validate the folder again."),
+            Map.entry("TESTER_FILE_TOO_LARGE", "Compare the file with the approved tester source and replace it with "
+                    + "the official version before grading."),
+            Map.entry("TESTER_FILE_UNREADABLE", "Restore read access or replace the file with a readable UTF-8 copy "
+                    + "of the official tester, then import the folder again."));
+
+    private static final String DEFAULT_NEXT_STEP = "Inspect the original item, correct the reported problem in a "
+            + "working copy, and run validation again before grading.";
 
     public SubmissionFinding {
         Objects.requireNonNull(severity, "severity");
@@ -56,64 +108,6 @@ public record SubmissionFinding(
         if (severity != FindingSeverity.ERROR || corrected) {
             return Optional.empty();
         }
-
-        return Optional.of(switch (code) {
-            case "MISSING_DEPENDENCY", "DEPENDENCY_UNREADABLE" ->
-                    "The other questions are still graded and the question that needs this file scores 0. Restore "
-                            + "the named support class or test data file from the assessment materials to the "
-                            + "stated Q folder, ensure it is readable, then import the submissions again.";
-            case "MISSING_JAVA_FILE" ->
-                    "The other questions are still graded and this question scores 0. If the file exists "
-                            + "elsewhere, place it in the stated Q folder and import the submissions again.";
-            case "MISSING_HEADER_EMAIL" ->
-                    "This student is skipped until resolved. Select Resolve issues, confirm the student's "
-                            + "username, name, and email from the LMS or class roster, then apply once to update "
-                            + "all normalized headers automatically.";
-            case "USERNAME_UNKNOWN" ->
-                    "This student is skipped until resolved. Select Resolve issues and enter the identity shown "
-                            + "in the LMS upload record or class roster. The application will rename the normalized "
-                            + "copy and update every header.";
-            case "HEADER_IDENTITY_MISMATCH", "CONFLICTING_HEADER_IDENTITIES" ->
-                    "This student is skipped until resolved. Compare the ZIP/folder owner against the LMS record, "
-                            + "then select Resolve issues and enter the single verified identity to replace "
-                            + "inconsistent normalized headers automatically.";
-            case "HEADER_UNREADABLE" ->
-                    "Open the named Java file in an editor, confirm it is genuine source code, save it as UTF-8, "
-                            + "and import the submission again.";
-            case "JAVA_FILE_TOO_LARGE" ->
-                    "The file was not run and its question scores 0. Inspect it manually before opening or "
-                            + "running it. If it is not a normal Java source file, request a clean resubmission.";
-            case "JAVA_FILE_UNREADABLE" ->
-                    "Its question scores 0. Restore read access or extract/copy the named source file manually "
-                            + "into the correct Q folder, then import the submission again.";
-            case "UNSAFE_ZIP_ENTRY" ->
-                    "Do not use the skipped entry. Inspect the original archive separately and request a clean "
-                            + "resubmission if the required source was stored in that unsafe path.";
-            case "SUBMISSION_UNREADABLE" ->
-                    "Open or extract this submission manually, repair the archive/folder or request a replacement, "
-                            + "then import it again. The remaining batch can still be graded.";
-            case "MISSING_TESTER_FILE" ->
-                    "Add the named official tester file to the selected Tester-Files folder, then import that "
-                            + "folder again.";
-            case "DUPLICATE_TESTER_FILE" ->
-                    "Keep the approved tester version and remove or move the duplicate outside Tester-Files, "
-                            + "then validate the folder again.";
-            case "WRONG_TESTER_FILENAME_CASE" ->
-                    "Rename the file exactly as shown, preserving capitalization, then import Tester-Files again.";
-            case "WRONG_TESTER_CLASS" ->
-                    "Correct the public class name so it exactly matches the Java filename, then validate again.";
-            case "MISSING_TESTER_MAIN" ->
-                    "Restore the official tester implementation containing its static main method, then validate "
-                            + "the folder again.";
-            case "TESTER_FILE_TOO_LARGE" ->
-                    "Compare the file with the approved tester source and replace it with the official version "
-                            + "before grading.";
-            case "TESTER_FILE_UNREADABLE" ->
-                    "Restore read access or replace the file with a readable UTF-8 copy of the official tester, "
-                            + "then import the folder again.";
-            default ->
-                    "Inspect the original item, correct the reported problem in a working copy, and run validation "
-                            + "again before grading.";
-        });
+        return Optional.of(NEXT_STEPS.getOrDefault(code, DEFAULT_NEXT_STEP));
     }
 }

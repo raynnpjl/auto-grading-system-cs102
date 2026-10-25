@@ -15,8 +15,6 @@ import java.time.Duration;
  * @param maxZipEntries      most entries a submission ZIP may contain
  * @param emailDomain        domain used to complete a student email that is missing from a header
  * @param maxTesterFileBytes largest tester source file that is inspected
- * @param workspaceFolder    folder under the temporary directory that holds normalized copies
- * @param maxLogCharacters   process output kept in the on-screen log
  * @param port               port of the web page on this computer
  * @param style              style checking and scoring
  * @param penalties          penalties deducted from the tester marks
@@ -33,8 +31,6 @@ public record GradingSettings(
         int maxZipEntries,
         String emailDomain,
         long maxTesterFileBytes,
-        String workspaceFolder,
-        int maxLogCharacters,
         int port,
         StyleSettings style,
         PenaltySettings penalties,
@@ -59,8 +55,6 @@ public record GradingSettings(
                 Math.toIntExact(file.positiveNumber("submission.max-zip-entries")),
                 file.text("submission.email-domain"),
                 file.positiveNumber("tester.max-file-bytes"),
-                file.text("workspace.folder"),
-                Math.toIntExact(file.positiveNumber("ui.max-log-characters")),
                 Math.toIntExact(file.positiveNumber("ui.port")),
                 new StyleSettings(
                         Path.of(file.text("style.checkstyle-config")),

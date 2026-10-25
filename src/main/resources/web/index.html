@@ -74,8 +74,7 @@
 
 <body class="bg-body-tertiary">
   <main id="app" class="container py-4">
-    <h1 class="fs-3 fw-semibold mb-1">CS102 Auto Grading System</h1>
-    <p class="text-body-secondary mb-3">Grade a batch of submissions, then fill in the LMS score sheet.</p>
+    <h1 class="fs-3 fw-semibold mb-3">CS102 Auto Grading System</h1>
 
     <!-- Where the user is in the four steps -->
     <ol class="steps list-unstyled d-flex flex-wrap align-items-center gap-2 mb-4" aria-label="Progress">
@@ -174,8 +173,7 @@
           <span class="step-marker" aria-hidden="true">4</span> Score sheet
         </h2>
         <label for="score-sheet" class="form-label text-body-secondary">
-          Choose the score sheet CSV from the LMS (e.g. IS442-ScoreSheet.csv), before or after grading.
-          Only each matched student's final grade numerator is filled in; everything else is kept.
+          Choose the score sheet CSV.
         </label>
         <div class="d-flex gap-2 align-items-center flex-wrap">
           <input id="score-sheet" class="form-control" style="max-width: 420px" type="file" accept=".csv,text/csv"
@@ -284,6 +282,7 @@
               <th scope="col" class="text-end">Total</th>
               <th scope="col" class="text-end">Feedback</th>
               <th scope="col" class="text-end">Report</th>
+              <th scope="col" class="text-end"><span class="visually-hidden">Grade this student</span></th>
             </tr>
           </thead>
           <tbody>
@@ -300,7 +299,14 @@
                     {{ f }}
                   </div>
                 </td>
-                <td><span class="badge rounded-pill" :class="statusBadge(s.status)">{{ statusLabel(s.status) }}</span></td>
+                <td>
+                  <span class="badge rounded-pill" :class="statusBadge(s.status)"
+                    :title="statusHint(s.status) || null">{{ statusLabel(s.status) }}</span>
+                  <span v-if="s.formatFixed" class="badge rounded-pill bg-info-subtle text-info-emphasis ms-1"
+                    title="The folder name, folder layout or name/email header was corrected automatically. The student's code was not changed.">
+                    Format fixed
+                  </span>
+                </td>
                 <td v-for="q in state.questions" :key="q" class="text-end"
                   :class="{ 'text-body-tertiary': s.scores[q] === 0 }">{{ cell(s, q) }}</td>
                 <td class="text-end fw-semibold">{{ s.finished ? s.total : '–' }}</td>
@@ -316,9 +322,16 @@
                     :href="'/api/reports/student?username=' + encodeURIComponent(s.username)">PDF</a>
                   <span v-else class="text-body-tertiary small">–</span>
                 </td>
+                <td class="text-end">
+                  <button v-if="s.status !== 'skipped'" class="btn btn-sm btn-outline-secondary text-nowrap"
+                    :disabled="state.running || !state.testersReady" @click="regrade(s.username)"
+                    :aria-label="(s.finished ? 'Regrade ' : 'Grade ') + s.username">
+                    {{ s.finished ? 'Regrade' : 'Grade' }}
+                  </button>
+                </td>
               </tr>
               <tr v-if="openFeedback[s.username]" class="table-light">
-                <td :colspan="state.questions.length + 5" class="small px-4 py-3">
+                <td :colspan="state.questions.length + 6" class="small px-4 py-3">
                   <div v-for="(f, i) in s.feedback" :key="i" class="mb-2">
                     <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ f.question }}</span>
                     <span class="fw-semibold" v-if="f.where">{{ f.where }}</span>
@@ -333,7 +346,7 @@
               </tr>
             </template>
             <tr v-if="state.students.length === 0">
-              <td :colspan="state.questions.length + 5" class="text-center text-body-secondary py-5">
+              <td :colspan="state.questions.length + 6" class="text-center text-body-secondary py-5">
                 {{ nextHint }}
               </td>
             </tr>
@@ -376,6 +389,9 @@
         const preview = ref(null);
         const sheetStatus = ref('');
         const sheetError = ref(false);
+        const POLL_DELAY = 1000;
+        const MAX_POLL_DELAY = 10000;
+        let pollDelay = POLL_DELAY;
         let timerId = null;
 
         // Choosing a folder uploads it straight away; there is no separate Upload button.
@@ -476,6 +492,7 @@
           preview.value = await response.json();
         }
 
+        // Fetches the latest state; returns false when the grader cannot be reached.
         async function refresh() {
           try {
             const response = await fetch('/api/progress', { cache: 'no-store' });
@@ -491,9 +508,20 @@
             } else {
               preview.value = null;
             }
+            return true;
           } catch (error) {
-            connectionError.value = 'Cannot reach the grader. Is the application still running?';
+            connectionError.value = 'Cannot reach the grader. Is the application still running? '
+              + `Trying again in ${Math.round(Math.min(pollDelay * 2, MAX_POLL_DELAY) / 1000)} s.`;
+            return false;
           }
+        }
+
+        // Asks for progress every second; while the grader cannot be reached, waits twice as long
+        // after each failed try (up to 10 s) instead of failing every second.
+        async function poll() {
+          const reached = await refresh();
+          pollDelay = reached ? POLL_DELAY : Math.min(pollDelay * 2, MAX_POLL_DELAY);
+          timerId = setTimeout(poll, pollDelay);
         }
 
         async function confirmIdentity(target) {
@@ -504,6 +532,16 @@
           const response = await fetch('/api/identity', { method: 'POST', body });
           const data = await response.json();
           message.value = response.ok ? '' : data.error;
+          await refresh();
+        }
+
+        // Grades one student again; everyone else keeps their result.
+        async function regrade(username) {
+          message.value = '';
+          const response = await fetch('/api/grade/student?username=' + encodeURIComponent(username),
+            { method: 'POST' });
+          const data = await response.json();
+          if (!response.ok) message.value = data.error;
           await refresh();
         }
 
@@ -525,8 +563,9 @@
 
         const skipped = computed(() => state.value.students.filter((s) => s.status === 'skipped'));
 
+        // Results exist once a student has finished grading; skipped students finish without being graded.
         const hasResults = computed(() =>
-          state.value.students.some((s) => ['graded', 'auto-fixed', 'needs-review'].includes(s.status)));
+          state.value.students.some((s) => s.finished && s.status !== 'skipped'));
 
         const canRun = computed(() =>
           state.value.testersReady && state.value.submissionsReady && !state.value.running);
@@ -554,15 +593,15 @@
           const p = preview.value;
           if (!p || !p.loaded) return '';
           if (!p.graded) return 'Run grading, then download the filled sheet.';
-          let text = `Will fill ${p.entries.length} of ${p.sheetRows} students in the sheet.`;
-          if (p.noSubmission.length) text += ` Left unchanged: ${p.noSubmission.join(', ')}.`;
-          if (p.notInSheet.length) text += ` Graded but not in the sheet (not written): ${p.notInSheet.join(', ')}.`;
-          return text;
+          const notes = [];
+          if (p.noSubmission.length) notes.push(`Left unchanged: ${p.noSubmission.join(', ')}.`);
+          if (p.notInSheet.length) notes.push(`Graded but not in the sheet (not written): ${p.notInSheet.join(', ')}.`);
+          return notes.join(' ');
         });
 
         const headline = computed(() => {
           if (state.value.running) {
-            return `Grading ${state.value.done} of ${state.value.total}: ${state.value.currentStudent}, ${state.value.currentStep}`;
+            return `Grading ${state.value.currentStudent}: ${state.value.currentStep}`;
           }
           if (state.value.total === 0) return 'Choose the tester files and submissions first.';
           return hasResults.value ? 'Grading finished.' : 'Ready to grade.';
@@ -570,11 +609,12 @@
 
         const countWith = (status) => state.value.students.filter((s) => s.status === status).length;
 
-        // A student who needs review or was auto-fixed has still been graded, so they count as graded too.
+        // A student who needs review has still been graded, so they count as graded too.
         const countsText = computed(() => {
           const graded = state.value.students.filter((s) => s.finished && s.status !== 'skipped').length;
+          const formatFixed = state.value.students.filter((s) => s.formatFixed).length;
           return `${graded} graded · ${countWith('needs-review')} need review · `
-            + `${countWith('auto-fixed')} auto-fixed · ${countWith('skipped')} skipped`;
+            + `${formatFixed} format fixed · ${countWith('skipped')} skipped`;
         });
 
         // What to do next, shown while the student table is still empty.
@@ -602,10 +642,17 @@
             queued: 'Queued',
             running: 'Grading',
             graded: 'Graded',
-            'auto-fixed': 'Auto-fixed',
             'needs-review': 'Needs review',
             skipped: 'Skipped',
           }[status] || status;
+        }
+
+        // What each status means, shown when the badge is hovered or focused.
+        function statusHint(status) {
+          return {
+            'needs-review': 'Graded, but something should be checked by a person.',
+            skipped: 'Not graded: confirm who this submission belongs to below.',
+          }[status] || '';
         }
 
         // Soft badge colours; only the statuses that need attention use warning colours.
@@ -614,26 +661,22 @@
             queued: 'bg-secondary-subtle text-secondary-emphasis',
             running: 'bg-primary-subtle text-primary-emphasis',
             graded: 'bg-success-subtle text-success-emphasis',
-            'auto-fixed': 'bg-info-subtle text-info-emphasis',
             'needs-review': 'bg-danger-subtle text-danger-emphasis',
             skipped: 'bg-warning-subtle text-warning-emphasis',
           }[status];
         }
 
-        onMounted(() => {
-          refresh();
-          timerId = setInterval(refresh, 1000);
-        });
+        onMounted(poll);
 
-        onBeforeUnmount(() => clearInterval(timerId));
+        onBeforeUnmount(() => clearTimeout(timerId));
 
         return {
           state, uploadingTesters, uploadingSubmissions,
           testerMessage, submissionMessage, testerError, submissionError, message, connectionError,
           identityForms, preview, sheetStatus, sheetError,
-          chooseFolder, uploadScoreSheet, confirmIdentity, runGrading,
+          chooseFolder, uploadScoreSheet, confirmIdentity, runGrading, regrade,
           percent, elapsed, skipped, hasResults, canRun, canDownloadSheet, sheetSummary, steps,
-          headline, countsText, nextHint, cell, statusLabel, statusBadge, openFeedback, toggleFeedback, codeParts,
+          headline, countsText, nextHint, cell, statusLabel, statusBadge, statusHint, openFeedback, toggleFeedback, codeParts,
         };
       },
     }).mount('#app');

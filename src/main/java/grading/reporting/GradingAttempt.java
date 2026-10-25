@@ -15,9 +15,12 @@ import grading.style.Templates;
 import grading.submission.SubmissionValidationResult;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
@@ -45,8 +48,9 @@ public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, 
 
     /**
      * Combines each submission with its grading result, its style check, its mark breakdown and the
-     * feedback on its mistakes, and compares every pair of students for possible plagiarism. Graded
-     * results are matched to the submissions that were ready for grading, in import order.
+     * feedback on its mistakes, and compares every pair of students for possible plagiarism. Each
+     * graded result is matched to its submission by username, so a student regraded on their own
+     * still gets their own result.
      */
     public static GradingAttempt assemble(LocalDateTime startedAt, Path testerFolder, Path submissionsFolder,
             GradingSettings settings, List<SubmissionValidationResult> submissions,
@@ -62,10 +66,13 @@ public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, 
         Templates templates = new Templates(settings.style().templateFolder());
         FeedbackGenerator feedback = new FeedbackGenerator(templates);
         SimilarityReport similarity = compare(submissions, settings, templates);
-        Iterator<StudentGradingResult> graded = results.iterator();
+        // Two submissions can share a username; each takes the next result with that name, in order.
+        Map<String, Deque<StudentGradingResult>> graded = new HashMap<>();
+        results.forEach(result -> graded.computeIfAbsent(result.username(), name -> new ArrayDeque<>()).add(result));
         List<StudentOutcome> outcomes = new ArrayList<>();
         for (SubmissionValidationResult submission : submissions) {
-            StudentGradingResult grading = submission.isReadyForGrading() && graded.hasNext() ? graded.next() : null;
+            Deque<StudentGradingResult> own = graded.getOrDefault(submission.username(), new ArrayDeque<>());
+            StudentGradingResult grading = submission.isReadyForGrading() ? own.poll() : null;
             StudentStyleResult styleResult = checkStyle(submission, style, settings);
             ScoreBreakdown score = grading == null ? null : score(grading, styleResult, settings);
             outcomes.add(new StudentOutcome(submission, grading, styleResult, score,
