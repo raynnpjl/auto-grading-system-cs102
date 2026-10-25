@@ -100,7 +100,7 @@
               <span class="step-marker" aria-hidden="true">1</span> Tester files
             </h2>
             <label for="tester-folder" class="form-label text-body-secondary">Choose the Tester-Files folder.</label>
-            <input id="tester-folder" class="form-control" type="file" webkitdirectory :disabled="uploadingTesters"
+            <input id="tester-folder" class="form-control" type="file" webkitdirectory :disabled="uploadingTesters || state.running"
               @change="chooseFolder($event, 'testers')">
             <div class="small mt-2 d-flex align-items-center gap-2" aria-live="polite"
               :class="testerError ? 'text-danger' : state.testersReady ? 'text-success' : 'text-body-secondary'">
@@ -121,7 +121,7 @@
               Choose the folder that holds the student ZIPs or folders.
             </label>
             <input id="submission-folder" class="form-control" type="file" webkitdirectory
-              :disabled="uploadingSubmissions" @change="chooseFolder($event, 'submissions')">
+              :disabled="uploadingSubmissions || state.running" @change="chooseFolder($event, 'submissions')">
             <div class="small mt-2 d-flex align-items-center gap-2" aria-live="polite"
               :class="submissionError ? 'text-danger' : state.submissionsReady ? 'text-success' : 'text-body-secondary'">
               <span v-if="uploadingSubmissions" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
@@ -176,7 +176,7 @@
           Choose the score sheet CSV.
         </label>
         <div class="d-flex gap-2 align-items-center flex-wrap">
-          <input id="score-sheet" class="form-control" style="max-width: 420px" type="file" accept=".csv,text/csv"
+          <input id="score-sheet" class="form-control" style="max-width: 420px" type="file" accept=".csv,text/csv" :disabled="state.running"
             @change="uploadScoreSheet($event)">
           <a class="btn btn-primary" :class="{ disabled: !canDownloadSheet }" href="/api/scoresheet/download"
             :tabindex="canDownloadSheet ? 0 : -1" :aria-disabled="!canDownloadSheet">

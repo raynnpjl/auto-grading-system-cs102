@@ -119,6 +119,30 @@ class WebApplicationTest {
         assertTrue(unknown.body().contains("Unknown student."));
     }
 
+    @Test
+    void refusesUploadsWhileGradingRuns() throws Exception {
+        Path testers = createTesters();
+        write("testers/Q1aTester.java", "public class Q1aTester extends Q1a { public static void main(String[] args)"
+                + " throws InterruptedException { Thread.sleep(3000); System.out.println(score()); } }");
+        Path batch = temporary.resolve("batch");
+        createSubmission(batch, "alice", 1.0);
+        byte[] testerZip = zipFolder(testers);
+        byte[] batchZip = zipFolder(batch);
+
+        assertEquals(200, post("/api/testers", testerZip).statusCode());
+        assertEquals(200, post("/api/submissions", batchZip).statusCode());
+        assertEquals(202, post("/api/grade", new byte[0]).statusCode());
+
+        HttpResponse<String> testerReply = post("/api/testers", testerZip);
+        assertEquals(409, testerReply.statusCode());
+        assertTrue(testerReply.body().contains("Wait until grading has finished."), testerReply.body());
+        HttpResponse<String> submissionReply = post("/api/submissions", batchZip);
+        assertEquals(409, submissionReply.statusCode());
+        assertTrue(submissionReply.body().contains("Wait until grading has finished."), submissionReply.body());
+
+        assertEquals(5.0, totalOf(waitForGradingToFinish(), "alice"));
+    }
+
     private HttpResponse<String> get(String path) throws Exception {
         return http.send(HttpRequest.newBuilder(URI.create(base + path)).build(), BodyHandlers.ofString());
     }

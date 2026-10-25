@@ -160,8 +160,12 @@ public final class WebApplication {
         }
     }
 
-    /** POST /api/testers: the body is a zip of the Tester-Files folder. */
+    /** POST /api/testers: the body is a zip of the Tester-Files folder. Refused while grading is running. */
     private void importTesters(HttpExchange exchange) throws IOException {
+        if (grading.get()) {
+            sendError(exchange, HTTP_CONFLICT, GRADING_RUNNING);
+            return;
+        }
         Optional<Path> folder = extractUpload(exchange, "testers-");
         if (folder.isEmpty()) {
             sendError(exchange, HTTP_BAD_REQUEST, EMPTY_UPLOAD);
@@ -176,9 +180,13 @@ public final class WebApplication {
 
     /**
      * POST /api/submissions: the body is a zip whose top level holds the student ZIPs or folders
-     * (or one student's folder on its own).
+     * (or one student's folder on its own). Refused while grading is running.
      */
     private void importSubmissions(HttpExchange exchange) throws IOException {
+        if (grading.get()) {
+            sendError(exchange, HTTP_CONFLICT, GRADING_RUNNING);
+            return;
+        }
         Optional<Path> input = extractUpload(exchange, "submissions-");
         if (input.isEmpty()) {
             sendError(exchange, HTTP_BAD_REQUEST, EMPTY_UPLOAD);
