@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -91,6 +92,8 @@ public final class WebApplication {
             Map.entry("POST /api/grade/student", this::regradeStudent),
             Map.entry("POST /api/scoresheet", this::uploadScoreSheet));
     private final Path uploads;
+    private HttpServer server;
+    private ExecutorService requestThreads;
 
     private volatile TesterValidationResult testers;
     private volatile List<SubmissionValidationResult> submissions = List.of();
@@ -115,13 +118,26 @@ public final class WebApplication {
         System.out.println("Auto-grader running at http://" + HOST + ":" + port);
     }
 
-    /** Starts the web server. Only this computer can connect to it. */
-    public void start(int port) throws IOException {
-        HttpServer server = HttpServer.create(new InetSocketAddress(HOST, port), 0);
+    /**
+     * Starts the web server and returns the port it listens on. Pass 0 to let the system choose a free
+     * port, as the tests do. Only this computer can connect to it.
+     */
+    public int start(int port) throws IOException {
+        server = HttpServer.create(new InetSocketAddress(HOST, port), 0);
         // A thread pool, so a slow upload does not block the progress updates.
-        server.setExecutor(Executors.newCachedThreadPool());
+        requestThreads = Executors.newCachedThreadPool();
+        server.setExecutor(requestThreads);
         server.createContext("/", this::route);
         server.start();
+        return server.getAddress().getPort();
+    }
+
+    /** Stops the web server. Used by the tests; the application itself runs until the process ends. */
+    public void stop() {
+        if (server != null) {
+            server.stop(0);
+            requestThreads.shutdownNow();
+        }
     }
 
     private static Handler library(String fileName, String type) {
