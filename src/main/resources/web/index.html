@@ -176,8 +176,9 @@
           Choose the score sheet CSV.
         </label>
         <div class="d-flex gap-2 align-items-center flex-wrap">
+          <!-- Cleared when clicked, so choosing the same file again (e.g. after editing it) still uploads it. -->
           <input id="score-sheet" class="form-control" style="max-width: 420px" type="file" accept=".csv,text/csv" :disabled="state.running"
-            @change="uploadScoreSheet($event)">
+            @click="$event.target.value = ''" @change="uploadScoreSheet($event)">
           <a class="btn btn-primary" :class="{ disabled: !canDownloadSheet }" href="/api/scoresheet/download"
             :tabindex="canDownloadSheet ? 0 : -1" :aria-disabled="!canDownloadSheet">
             Download filled CSV
@@ -483,7 +484,6 @@
             sheetError.value = true;
             sheetStatus.value = error.message;
           }
-          event.target.value = '';
           await refresh();
         }
 
