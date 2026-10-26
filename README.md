@@ -21,12 +21,28 @@ macOS or Linux:
 ./run.sh
 ```
 
-Windows (Command Prompt):
+Windows: `compile.sh` and `run.sh` are shell scripts, so they run in Git Bash or WSL but not in
+Command Prompt or PowerShell. Use the Maven Wrapper commands they contain instead, run from this
+folder (the one that holds `pom.xml`):
+
+Command Prompt:
 
 ```bat
 mvnw.cmd -q -B -DskipTests compile
 mvnw.cmd -q -B exec:java
 ```
+
+PowerShell (it needs the `.\` prefix to run a file in the current folder):
+
+```powershell
+.\mvnw.cmd -q -B -DskipTests compile
+.\mvnw.cmd -q -B exec:java
+```
+
+Git Bash: `./compile.sh` then `./run.sh`, as on macOS.
+
+The first command compiles into `target/classes`; the second starts the application. If
+`mvnw.cmd` reports that `JAVA_HOME` is not set, set it to your JDK 21 folder, for example `set JAVA_HOME=C:\Program Files\Java\jdk-21` in Command Prompt.
 
 The grading page opens in your browser at `http://127.0.0.1:8080`. If it does not, open that
 address yourself. If port 8080 is busy, the application picks a free port and prints the address.
@@ -100,7 +116,7 @@ checked). Style is reported only; set `penalty.style-per-violation` to deduct ma
 - `src/main/java/grading/config`, `assessment`, `common`: settings, the assessment's files, and
   small shared helpers.
 - `src/main/resources/web`: the web page.
-- `src/test/java`: automated tests. Run them with `./mvnw verify`.
+- `src/test/java`: automated tests. Run them with `./mvnw verify` (Windows: `mvnw.cmd verify`).
 
 ## Libraries
 
