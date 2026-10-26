@@ -1,156 +1,112 @@
 # CS102 Auto Grading System
 
+A web application that grades a whole class of CS102 Java submissions at once. It checks and fixes
+each submission's folders and headers, compiles and runs the official tester files with a time
+limit, fills in the LMS score sheet, and writes a PDF report for every student.
+
 ## Requirements
 
-- JDK 21
-- A graphical desktop session to launch the application.
-- Internet access for the first build to download Maven and its dependencies.
-
-The Maven Wrapper pins Maven 3.9.16, so a separate Maven installation is not needed.
+- JDK 21 (`java` and `javac` on the PATH).
+- An internet connection the first time you build: the Maven Wrapper downloads Maven and the
+  libraries once. You do not need to install Maven yourself.
 
 ## Build and run
 
-Run these commands from this directory on macOS or Linux:
+This project uses the standard Maven layout, so compiled classes go to `target/classes`.
+
+macOS or Linux:
 
 ```sh
 ./compile.sh
 ./run.sh
 ```
-Then click the link to open up the ui on your browser(ie Chrome)
 
-`compile.sh` compiles every source file into `target/classes` and `run.sh` starts the
-application from this folder, so the files in `config/` are found. Both use the Maven Wrapper;
-`./mvnw clean verify` also runs the tests.
-
-On Windows Command Prompt:
+Windows (Command Prompt):
 
 ```bat
-mvnw.cmd clean verify
-mvnw.cmd javafx:run
+mvnw.cmd -q -B -DskipTests compile
+mvnw.cmd -q -B exec:java
 ```
-Then click the link to open up the ui on your browser(ie Chrome)
 
-## Grading workflow
+The grading page opens in your browser at `http://127.0.0.1:8080`. If it does not, open that
+address yourself. If port 8080 is busy, the application picks a free port and prints the address.
 
-1. **Tester files — Import folder:** select the `Tester-Files` folder.
-2. **Student submissions — Import folder:** select the folder of student ZIPs or folders.
-   Submissions are validated and normalized. A missing or unusable source file costs only its own
-   question (it scores 0). A student whose identity cannot be confirmed is skipped until you select
-   **Resolve issues**; everyone else can still be graded.
-3. **Run grading:** each question's tester is compiled and run against each student. The console
-   lists every student's per-question scores and total, and the students that were skipped. If a
-   tester runs longer than the time limit, the test case that did not finish is replaced by a
-   failure and the tester is re-run, so the remaining test cases are still graded. Each student's
-   code is then checked against the CS102 Java Coding Style guide, and the attempt's reports are
-   written (see *Reports* below).
-4. **Import score sheet:** select the score sheet CSV exported from the LMS (for example
-   `IS442-ScoreSheet.csv`). It can be imported before or after grading. A sheet opened and saved
-   in Numbers or Excel may no longer be a CSV file even if its name ends in `.csv`; export it as
-   CSV instead. If a sheet cannot be imported, the reason stays at the top of the console and
-   Write scores stays unavailable.
-5. **Write scores:** review the summary, then confirm. Each student's final mark (the tester marks
-   minus any configured penalties) is written into the
-   `Calculated Final Grade Numerator` column of the imported file, matched by `Username`.
+## How to grade
 
-Writing scores changes only the numerator cells of matched students; every other value, the
-column order, and the line endings are kept as they were. Before writing, the application saves a
-copy beside the sheet named `<sheet>.backup-<yyyyMMdd-HHmmss>.csv`, and it refuses to write if the
-file changed after it was imported. Close the sheet in Excel before writing. Students in the sheet
-without a graded submission are left unchanged and listed in the console.
+1. **Tester files:** choose the `Tester-Files` folder.
+2. **Student submissions:** choose the folder that holds the student ZIPs or folders. Each
+   submission is checked and, where possible, fixed in a copy (the originals are never changed).
+   A student who cannot be identified is listed under *Confirm the identity of skipped students*:
+   enter their username, name and email, then save.
+3. **Run grading:** every student is compiled and tested, four at a time, with live progress. A test
+   case that runs past the time limit is skipped and the rest of the tester still runs. You can
+   cancel a run; the previous results come back. *Regrade* grades one student again.
+4. **Score sheet:** choose the score sheet CSV exported from the LMS, then *Download filled CSV*.
+   Only the `Calculated Final Grade Numerator` of matched students is filled in; the file you
+   chose is not changed.
 
-## Configuration
+*Download all reports (ZIP)* saves the summary and every student's report.
 
-Settings are not written into the code. Two files are packaged with the application:
+## Test submissions
 
-- `grading.properties`: time limits, how many students are graded at the same time (4 by
-  default; lower it on machines with little memory), output and file-size limits, the email
-  domain used to complete missing header emails, and the temporary workspace folder.
-  Normalized copies in that folder are deleted when submissions are re-imported and when the
-  application closes; copies left by a crashed session are removed at the next start.
-- `assessment.properties`: the assessment being graded — its questions, the folder each belongs
-  in, the student source files, and the support classes and data files each tester needs.
+`test-submissions/` holds extra submissions that show cases the provided samples do not. Copy them
+into the folder of student ZIPs before step 2.
 
-To change a value without rebuilding, copy the file to `config/` in the folder the application
-is started from (for example `config/grading.properties`) and edit the copy, or pass
-`-Dgrading.config=<path>` / `-Dassessment.config=<path>`. Values missing from the copy keep their
-packaged defaults. A different assessment is graded by describing it in `assessment.properties`.
+| Submission | What it shows |
+|---|---|
+| `RenameToYourUsername.zip` | The resource folder submitted without renaming it or filling in the headers. The student is skipped until you confirm who it is. |
+| `missing.files.2025.zip` | No `Q3` folder and no `Q2b.java`. Only those questions score 0; the rest are graded. |
+| `loop.q1b.2025.zip` | Q1b loops forever on test case 2 only. That test is skipped after the time limit; tests 1 and 3 still earn marks. |
+| `copied.answer.2025.zip` | ping.lee.2023's Q1a and Q2a with the variables renamed. Flagged as possible plagiarism. |
 
 ## Reports
 
-Every grading run is an *attempt* with its own folder, named after the time it started, under
-`grading-reports/` (set by `reports.folder`). Re-grading never overwrites an earlier attempt.
+Each grading run writes a folder under `grading-reports/`, named after the time it started:
 
-- `summary.pdf`: students needing a manual check listed first with the reasons, the other
-  students, class statistics (marks, each question's pass rate, common style and submission
-  problems), and the configuration used: time limits, marks awarded per test case, penalties,
-  style rules and weights, and fingerprints of the style files, so results can be reproduced.
-- `students/<username>.pdf`: the student's identity (username, ZIP or folder name, name and email
-  from the Java headers), structure problems and every automatic correction (original path to
-  corrected path), each question's test cases (passed, failed or timed out, with expected and
-  actual output when the tester prints them), the score breakdown, and the style results.
+- `summary.pdf`: students who need a manual check and why, all marks, class statistics, common
+  mistakes, possible plagiarism, and the settings used.
+- `students/<username>.pdf`: one student's identity, the fixes made to their submission, every test
+  case with expected and actual output, their marks, and their style results.
 
-Reports are written in plain language as PDF files. A result that is missing or cannot be read
-appears as a note in the report; writing reports never stops grading. If a report cannot be laid
-out as a PDF, it is saved as a `.txt` file instead and the summary says so.
+## Configuration
 
-**Save reports** saves the latest attempt's folder as one ZIP file wherever you choose.
+The settings are in `src/main/resources`:
 
-## Style scoring
+- `grading.properties`: time limits, how many students are graded at once, memory and size limits,
+  the email domain used to complete missing emails, the port, penalties, and plagiarism thresholds.
+- `assessment.properties`: the questions, the folder each belongs in, and the files each tester
+  needs. Change this file to grade a different assessment.
 
-Each student's source files are checked with [Checkstyle](https://checkstyle.org/) against the
-CS102 Java Coding Style guide. The files are checked as the student submitted them, before any
-header repair, and lines kept unchanged from the instructor's template (`config/template`) are
-not checked. A file that cannot be analysed, for example because it does not parse, is recorded
-as "could not analyse" and the run continues.
+To change a setting without rebuilding, copy the file to `config/` (for example
+`config/grading.properties`) and edit the copy. Values you leave out keep their defaults.
 
-- `config/checkstyle.xml`: the checks, each with an id and a comment naming the guide section it
-  enforces. Three checks are written for this project in `grading.style.checks`: break or
-  continue in an infinite loop (section 10), declaring a variable without a value (section 3),
-  and, as a heuristic marked for a person to confirm, first/last-iteration conditionals in loops
-  (section 8).
-- `config/style-rules.properties`: each check's guide section, plain-language rule and weight,
-  and the guide rules that are not checked automatically, which every report lists.
+Style checking uses the files in `config/`: `checkstyle.xml` (the checks), `style-rules.properties`
+(each rule's guide section and weight) and `template/` (the starter code, whose lines are not
+checked). Style is reported only; set `penalty.style-per-violation` to deduct marks for it.
 
-The style score starts at `style.max-score` (10) and loses each violation's weight; a rule
-broken more than once on the same line counts once. Style is reported only: `penalty.*` in
-`grading.properties` is 0, so marks are unchanged. Setting a penalty deducts it from the mark
-written to the score sheet.
+## Project structure
 
-## Maven layout
-
-- `src/main/java`: application source, organised by responsibility:
-  - `grading.config`: loading the settings files.
-  - `grading.assessment`: the assessment's questions and the files each needs.
-  - `grading.submission`: opening, checking and normalizing submissions. `SubmissionSource`
-    has one subclass per kind of submission (ZIP or folder), and each `SubmissionCheck`
-    implementation reports one kind of anomaly; new checks can be added without changing
-    the preparation service.
-  - `grading.tester`: validation of the tester folder.
-  - `grading.execution`: compilation and time-limited execution of testers.
-  - `grading.scoring`: per-question and per-student scores of a grading run.
-  - `grading.reporting`: the validation and results reports, attempt reports, and score sheet updates.
-  - `grading.style`: style checking with Checkstyle; `grading.style.checks` holds the custom checks.
-  - `grading.common`: small helpers shared by the packages.
-  - `ui`: the JavaFX view, its controller and dialogs.
-- `src/main/resources`: the settings files, and under `ui` the FXML view and CSS stylesheet.
-- `src/test/java`, `src/test/resources`: unit and UI tests.
-- `target`: generated build output, ignored by Git.
-
-The POM declares JavaFX controls and FXML, the Java compiler plugin, and the JavaFX
-launcher plugin. JavaFX graphics is included transitively.
+- `src/main/java/web`: the web server and its routes.
+- `src/main/java/grading/session`: what is loaded and the grading run.
+- `src/main/java/grading/submission`: opening, checking and fixing submissions.
+- `src/main/java/grading/tester`: checking the tester folder.
+- `src/main/java/grading/execution`: compiling and running testers with time limits.
+- `src/main/java/grading/scoring`: per-question and per-student marks.
+- `src/main/java/grading/reporting`: PDF reports and the score sheet.
+- `src/main/java/grading/style`: style checking against the CS102 guide.
+- `src/main/java/grading/similarity`: plagiarism detection.
+- `src/main/java/grading/feedback`: explanations of each student's mistakes.
+- `src/main/java/grading/progress`: the live progress shown on the page.
+- `src/main/java/grading/config`, `assessment`, `common`: settings, the assessment's files, and
+  small shared helpers.
+- `src/main/resources/web`: the web page.
+- `src/test/java`: automated tests. Run them with `./mvnw verify`.
 
 ## Libraries
 
-- [OpenJFX](https://openjfx.io/) 21: the desktop user interface.
-- [Apache Commons CSV](https://commons.apache.org/proper/commons-csv/) 1.14: reading the LMS
-  score sheet, including quoted values.
-- [JUnit](https://junit.org/junit5/) 5 (tests only).
-- [Apache PDFBox](https://pdfbox.apache.org/) 3.0.8: writing the grading reports as PDF files.
-- [Checkstyle](https://checkstyle.org/) 14.1.0: style checking. The self-contained release jar is
-  kept in `lib/checkstyle-14.1.0-all.jar` (SHA-256
-  `51e2bc7fed1bb56808aa39045f655a316194997acd24bac5195253dcf342b380`) and referenced from
-  `pom.xml`, so it is never downloaded during the build.
-
-Build references: [Maven directory layout](https://maven.apache.org/guides/introduction/introduction-to-the-standard-directory-layout.html),
-[Maven Wrapper](https://maven.apache.org/tools/wrapper/),
-and [OpenJFX setup](https://openjfx.io/openjfx-docs/).
+- [Apache Commons CSV](https://commons.apache.org/proper/commons-csv/): reads the score sheet.
+- [Apache PDFBox](https://pdfbox.apache.org/): writes the PDF reports.
+- [Checkstyle](https://checkstyle.org/): style checking. The jar is in `lib/`.
+- [Vue](https://vuejs.org/), [Bootstrap](https://getbootstrap.com/) and
+  [JSZip](https://stuk.github.io/jszip/): the web page. They are bundled, so no internet is needed.
+- [JUnit 5](https://junit.org/junit5/): the automated tests.
