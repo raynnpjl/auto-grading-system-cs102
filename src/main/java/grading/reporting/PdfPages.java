@@ -1,0 +1,141 @@
+package grading.reporting;
+
+import grading.reporting.PdfText.Run;
+import java.io.IOException;
+import java.util.List;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+
+/**
+ * The A4 pages of a PDF report being written, top to bottom: where the next line goes, starting a
+ * new page when it would not fit, and the drawing operations the report uses.
+ */
+final class PdfPages {
+
+    static final float MARGIN = 50;
+    /** The width between the left and right margins. */
+    static final float WIDTH = PDRectangle.A4.getWidth() - 2 * MARGIN;
+    /** The grey of a table header and a code block's background. */
+    static final float GREY_FILL = 0.93f;
+    private static final float TOP = PDRectangle.A4.getHeight() - MARGIN;
+    private static final float BOTTOM = MARGIN + 20;
+    private static final float GRID_GREY = 0.6f;
+    private static final float GRID_LINE_WIDTH = 0.4f;
+    private static final float FOOTER_GREY = 0.45f;
+    private static final float FOOTER_SIZE = 7.5f;
+
+    private final PDDocument document;
+    private final PdfText text;
+    private PDPageContentStream content;
+    private float y;
+
+    /** Starts the first page of the document. */
+    PdfPages(PDDocument document, PdfText text) throws IOException {
+        this.document = document;
+        this.text = text;
+        newPage();
+    }
+
+    /** Where the next line starts, measured up from the bottom of the page. */
+    float y() {
+        return y;
+    }
+
+    /** Leaves a gap of the given height. */
+    void moveDown(float height) {
+        y -= height;
+    }
+
+    /** Whether something of the given height still fits on this page. */
+    boolean fits(float height) {
+        return y - height >= BOTTOM;
+    }
+
+    /** Starts a new page unless something of the given height still fits on this one. */
+    void ensureSpace(float height) throws IOException {
+        if (!fits(height)) {
+            newPage();
+        }
+    }
+
+    void newPage() throws IOException {
+        if (content != null) {
+            content.close();
+        }
+        PDPage page = new PDPage(PDRectangle.A4);
+        document.addPage(page);
+        content = new PDPageContentStream(document, page);
+        y = TOP;
+    }
+
+    /** Draws one line of text at x and moves below it, on a new page when it does not fit. */
+    void drawLine(List<Run> line, float x, float size) throws IOException {
+        ensureSpace(size * PdfText.LEADING);
+        drawText(line, x, y - size, size);
+        y -= size * PdfText.LEADING;
+    }
+
+    /** Draws runs one after another from x along the baseline. */
+    void drawText(List<Run> line, float x, float baseline, float size) throws IOException {
+        float cursor = x;
+        for (Run run : line) {
+            if (run.text().isEmpty()) {
+                continue;
+            }
+            content.beginText();
+            content.setFont(run.font(), size);
+            content.newLineAtOffset(cursor, baseline);
+            content.showText(run.text());
+            content.endText();
+            cursor += PdfText.width(run.text(), run.font(), size);
+        }
+    }
+
+    /** Fills a rectangle with a grey from 0 (black) to 1 (white). */
+    void fill(float x, float bottom, float width, float height, float grey) throws IOException {
+        content.setNonStrokingColor(grey, grey, grey);
+        content.addRect(x, bottom, width, height);
+        content.fill();
+        content.setNonStrokingColor(0f, 0f, 0f);
+    }
+
+    /** Draws a table row's border and the lines between its columns, below the current position. */
+    void grid(float[] widths, float height) throws IOException {
+        content.setStrokingColor(GRID_GREY, GRID_GREY, GRID_GREY);
+        content.setLineWidth(GRID_LINE_WIDTH);
+        float total = 0;
+        for (float width : widths) {
+            total += width;
+        }
+        content.addRect(MARGIN, y - height, total, height);
+        float x = MARGIN;
+        for (int column = 0; column < widths.length - 1; column++) {
+            x += widths[column];
+            content.moveTo(x, y);
+            content.lineTo(x, y - height);
+        }
+        content.stroke();
+        content.setStrokingColor(0f, 0f, 0f);
+    }
+
+    /** Finishes the last page and writes the footer, with page numbers, on every page. */
+    void finish(String footer) throws IOException {
+        content.close();
+        content = null;
+        int pages = document.getNumberOfPages();
+        for (int number = 1; number <= pages; number++) {
+            PDPage page = document.getPage(number - 1);
+            try (PDPageContentStream stream = new PDPageContentStream(document, page,
+                    PDPageContentStream.AppendMode.APPEND, true, true)) {
+                stream.setNonStrokingColor(FOOTER_GREY, FOOTER_GREY, FOOTER_GREY);
+                stream.beginText();
+                stream.setFont(text.regular, FOOTER_SIZE);
+                stream.newLineAtOffset(MARGIN, MARGIN / 2);
+                stream.showText(text.printable(footer + "   |   Page " + number + " of " + pages, text.regular));
+                stream.endText();
+            }
+        }
+    }
+}

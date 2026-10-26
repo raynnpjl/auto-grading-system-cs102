@@ -1,5 +1,6 @@
 package grading.feedback;
 
+import grading.assessment.AssessmentDefinition;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -119,7 +120,7 @@ final class CompilationErrorRule implements FeedbackRule {
     }
 
     private static boolean isTester(JavacError error) {
-        return error.file().endsWith(FeedbackContext.TESTER_SUFFIX);
+        return error.file().endsWith(AssessmentDefinition.TESTER_SUFFIX);
     }
 
     private static boolean mentions(JavacError error, String className) {

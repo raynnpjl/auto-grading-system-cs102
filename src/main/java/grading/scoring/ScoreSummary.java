@@ -12,6 +12,7 @@ public record ScoreSummary(List<StudentScore> students) {
         students = List.copyOf(students);
     }
 
+    /** The totals of a grading run's results. */
     public static ScoreSummary from(List<StudentGradingResult> results) {
         return new ScoreSummary(results.stream().map(StudentScore::from).toList());
     }
@@ -22,6 +23,7 @@ public record ScoreSummary(List<StudentScore> students) {
         return students.stream().filter(student -> normalize(student.username()).equals(key)).findFirst();
     }
 
+    /** The username as it is compared: trimmed and in lower case. */
     public static String normalize(String username) {
         return username == null ? "" : username.strip().toLowerCase(Locale.ROOT);
     }

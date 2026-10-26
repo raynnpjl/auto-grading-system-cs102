@@ -25,6 +25,7 @@ public record StudentStyleResult(String username, List<FileStyleResult> files, O
         return new StudentStyleResult(username, List.of(), OptionalDouble.empty(), maxScore, List.of(reason));
     }
 
+    /** Every violation found, including repeats on the same line. */
     public int violationCount() {
         return files.stream().mapToInt(file -> file.violations().size()).sum();
     }
@@ -42,6 +43,7 @@ public record StudentStyleResult(String username, List<FileStyleResult> files, O
         return files.stream().mapToInt(FileStyleResult::countedViolations).sum();
     }
 
+    /** Every violation found, file by file. */
     public List<StyleViolation> violations() {
         return files.stream().flatMap(file -> file.violations().stream()).toList();
     }

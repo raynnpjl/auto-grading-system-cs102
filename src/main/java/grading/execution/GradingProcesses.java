@@ -1,6 +1,5 @@
 package grading.execution;
 
-import grading.config.GradingSettings;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,11 +19,6 @@ final class GradingProcesses {
             throw new IOException("A full JDK 21 or newer is required; missing tool: " + tool);
         }
         return tool.toString();
-    }
-
-    /** The JVM option that caps a javac or tester run's memory, from grading.max-memory-mb. */
-    static String maxHeap() {
-        return "-Xmx" + GradingSettings.current().maxMemoryMegabytes() + "m";
     }
 
     static void log(Consumer<String> log, String questionId, String stage, ProcessResult process) {

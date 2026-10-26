@@ -13,6 +13,11 @@ import java.util.function.Function;
  */
 public final class AssessmentDefinition {
 
+    /** The extension of a Java source file. */
+    public static final String JAVA_EXTENSION = ".java";
+    /** What every tester's file name ends with: Q1aTester.java tests Q1a. */
+    public static final String TESTER_SUFFIX = "Tester" + JAVA_EXTENSION;
+
     private static final ConfigFile CONFIG = ConfigFile.load("assessment");
 
     public static final List<Question> QUESTIONS = loadQuestions(CONFIG);
@@ -32,22 +37,31 @@ public final class AssessmentDefinition {
         return QUESTIONS.stream().map(Question::folder).distinct().toList();
     }
 
+    /** Each student source file and the question folder it belongs in. */
     public static Map<String, String> sourceFiles() {
         return filesByFolder(Question::sources);
     }
 
+    /** Each support class a tester needs and the question folder it belongs in. */
     public static Map<String, String> supportClasses() {
         return filesByFolder(Question::supportClasses);
     }
 
+    /** Each data file a tester reads and the question folder it belongs in. */
     public static Map<String, String> runtimeFiles() {
         return filesByFolder(Question::runtimeFiles);
     }
 
+    /** The tester file of every question, in grading order, such as Q1aTester.java. */
     public static List<String> testerFiles() {
         return QUESTIONS.stream().map(Question::testerFilename).toList();
     }
 
+    /**
+     * The question a tester file grades.
+     *
+     * @throws IllegalArgumentException if no question has that tester
+     */
     public static Question forTester(String filename) {
         return QUESTIONS.stream().filter(question -> question.testerFilename().equals(filename))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("Unknown assessment tester: " + filename));
@@ -83,8 +97,9 @@ public final class AssessmentDefinition {
             runtimeFiles = List.copyOf(runtimeFiles);
         }
 
+        /** The tester that grades this question, such as Q1aTester.java. */
         public String testerFilename() {
-            return id + "Tester.java";
+            return id + TESTER_SUFFIX;
         }
     }
 }

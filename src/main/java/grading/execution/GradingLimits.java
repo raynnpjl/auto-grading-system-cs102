@@ -1,0 +1,46 @@
+package grading.execution;
+
+import grading.config.GradingSettings;
+import java.time.Duration;
+import java.util.Objects;
+
+/**
+ * The limits every javac and tester run is held to, taken from the grading settings.
+ *
+ * @param compileTimeout     the longest a javac run may take
+ * @param executionTimeout   the longest a tester run may take
+ * @param maxMemoryMegabytes the heap each javac and tester JVM may use
+ * @param parallelStudents   how many students are graded at the same time
+ */
+record GradingLimits(Duration compileTimeout, Duration executionTimeout, int maxMemoryMegabytes,
+        int parallelStudents) {
+
+    GradingLimits {
+        requirePositive(compileTimeout);
+        requirePositive(executionTimeout);
+        if (maxMemoryMegabytes < 1) {
+            throw new IllegalArgumentException("Memory limit must be positive.");
+        }
+        if (parallelStudents < 1) {
+            throw new IllegalArgumentException("At least one student must be graded at a time.");
+        }
+    }
+
+    static GradingLimits of(GradingSettings settings) {
+        return new GradingLimits(settings.compileTimeout(), settings.executionTimeout(),
+                settings.maxMemoryMegabytes(), settings.parallelStudents());
+    }
+
+    /** The JVM option that caps a javac or tester run's memory. */
+    String maxHeapOption() {
+        return "-Xmx" + maxMemoryMegabytes + "m";
+    }
+
+    private static void requirePositive(Duration timeout) {
+        Objects.requireNonNull(timeout, "timeout");
+        if (timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("Timeout must be positive.");
+        }
+        timeout.toNanos(); // reject values that cannot be used by the monotonic deadline calculation.
+    }
+}

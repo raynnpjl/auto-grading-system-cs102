@@ -1,5 +1,6 @@
 package grading.submission;
 
+import grading.assessment.AssessmentDefinition;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,7 +70,7 @@ final class FileSearch {
     }
 
     static boolean isJavaSource(Path path) {
-        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".java");
+        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(AssessmentDefinition.JAVA_EXTENSION);
     }
 
     static boolean isZip(Path path) {

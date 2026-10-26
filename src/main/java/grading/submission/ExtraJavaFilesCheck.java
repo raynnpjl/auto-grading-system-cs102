@@ -19,11 +19,8 @@ public final class ExtraJavaFilesCheck implements SubmissionCheck {
                 .filter(name -> !required.contains(name))
                 .count();
         if (extra > 0) {
-            findings.add(new SubmissionFinding(
-                    FindingSeverity.INFO,
-                    "EXTRA_JAVA_FILES",
-                    "Found " + extra + " additional Java file(s); they were left out of the normalized copy.",
-                    false));
+            findings.add(SubmissionFinding.info("EXTRA_JAVA_FILES",
+                    "Found " + extra + " additional Java file(s); they were left out of the normalized copy."));
         }
     }
 }

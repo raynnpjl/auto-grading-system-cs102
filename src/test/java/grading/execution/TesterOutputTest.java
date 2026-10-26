@@ -27,6 +27,34 @@ class TesterOutputTest {
     }
 
     @Test
+    void countsOneVerdictPerTestCaseSoStudentOutputEarnsNothing() {
+        TesterOutput output = TesterOutput.parse("""
+                Passed
+                Test 1: first
+                Passed
+                Passed
+                Passed
+                Test 2: second
+                Failed
+                Test case 3 skipped: it did not finish within the time limit.
+                Failed -> Timed out
+                Test 4: fourth
+                Passed
+                """);
+
+        assertEquals(2, output.passed());
+        assertEquals(2, output.failed());
+    }
+
+    @Test
+    void countsEveryVerdictWhenTheTesterPrintsNoHeaders() {
+        TesterOutput output = TesterOutput.parse("Passed\nPassed\nFailed\n2.0\n");
+
+        assertEquals(2, output.passed());
+        assertEquals(1, output.failed());
+    }
+
+    @Test
     void hasNoScoreWhenTheLastLineIsNotAFiniteNonnegativeNumber() {
         for (String stdout : new String[] {"", "Passed", "-1", "NaN", "Infinity", "1.0\ntrailing"}) {
             assertTrue(TesterOutput.parse(stdout).score().isEmpty(), stdout);

@@ -22,10 +22,12 @@ public record StudentGradingResult(String username, List<QuestionGradingResult> 
         return questions.stream().anyMatch(question -> question.status() != QuestionGradingResult.Status.GRADED);
     }
 
+    /** The student's marks over every question part. */
     public double totalScore() {
         return questions.stream().mapToDouble(QuestionGradingResult::score).sum();
     }
 
+    /** The marks per question, with the parts of a question added up: Q1a and Q1b count as Q1. */
     public Map<String, Double> questionScores() {
         Map<String, Double> scores = new LinkedHashMap<>();
         for (QuestionGradingResult question : questions) {

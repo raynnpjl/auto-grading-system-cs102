@@ -67,9 +67,4 @@ public record SimilarityPair(String questionId, String first, String second, dou
     public String otherThan(String username) {
         return first.equals(username) ? second : first;
     }
-
-    /** The matching lines of one student in the pair. */
-    public List<LineRange> linesOf(String username) {
-        return first.equals(username) ? firstLines : secondLines;
-    }
 }

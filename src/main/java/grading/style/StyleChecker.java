@@ -48,12 +48,16 @@ public final class StyleChecker {
     private Configuration configuration;
     private String configurationProblem;
 
+    /**
+     * @param settings where the Checkstyle configuration, rules and template are
+     */
     public StyleChecker(StyleSettings settings) {
         this.settings = settings;
         this.rules = StyleRules.load(settings.rules());
         this.templates = new Templates(settings.templateFolder());
     }
 
+    /** The style rules, with their guide sections and weights. */
     public StyleRules rules() {
         return rules;
     }

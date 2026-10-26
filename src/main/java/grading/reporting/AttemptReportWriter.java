@@ -33,6 +33,9 @@ public final class AttemptReportWriter {
 
     private final Path reportsRoot;
 
+    /**
+     * @param reportsRoot the folder that receives one folder per attempt
+     */
     public AttemptReportWriter(Path reportsRoot) {
         this.reportsRoot = reportsRoot;
     }
@@ -48,6 +51,7 @@ public final class AttemptReportWriter {
         }
     }
 
+    /** Writes the attempt's summary and one report per student; a report that fails is listed as a problem. */
     public Written write(GradingAttempt attempt) {
         String baseId = attempt.startedAt().format(ATTEMPT_ID);
         Path folder;
@@ -84,12 +88,6 @@ public final class AttemptReportWriter {
             problems.add("The attempt summary could not be written: " + Messages.describe(exception));
         }
         return new Written(Optional.of(folder), attemptId, problems);
-    }
-
-    /** The summary of an attempt written by this class, as found in its folder. */
-    public static Path summaryOf(Path attemptFolder) {
-        Path pdf = attemptFolder.resolve(SUMMARY_NAME + PDF);
-        return Files.exists(pdf) ? pdf : attemptFolder.resolve(SUMMARY_NAME + TEXT);
     }
 
     /**

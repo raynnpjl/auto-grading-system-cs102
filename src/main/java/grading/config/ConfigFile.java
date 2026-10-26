@@ -26,6 +26,11 @@ public final class ConfigFile {
         this.values = values;
     }
 
+    /**
+     * Reads {@code <name>.properties}: the packaged defaults, overridden by a copy outside the application.
+     *
+     * @throws IllegalStateException if the packaged file or the override cannot be read
+     */
     public static ConfigFile load(String name) {
         Properties values = new Properties();
         String resource = "/" + name + ".properties";
@@ -46,6 +51,11 @@ public final class ConfigFile {
         return new ConfigFile(name, values);
     }
 
+    /**
+     * The value of a setting, which must be present and not blank.
+     *
+     * @throws IllegalStateException if the setting is missing
+     */
     public String text(String key) {
         String value = values.getProperty(key);
         if (value == null || value.isBlank()) {
@@ -84,6 +94,11 @@ public final class ConfigFile {
         return number;
     }
 
+    /**
+     * The value of a setting that must be a whole number above zero.
+     *
+     * @throws IllegalStateException if the setting is missing or not a positive number
+     */
     public long positiveNumber(String key) {
         try {
             long number = Long.parseLong(text(key));

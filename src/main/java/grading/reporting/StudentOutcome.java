@@ -34,10 +34,12 @@ public record StudentOutcome(SubmissionValidationResult submission, StudentGradi
         similar = similar == null ? List.of() : List.copyOf(similar);
     }
 
+    /** The student's username. */
     public String username() {
         return submission.username();
     }
 
+    /** Whether the student was graded in this attempt. */
     public boolean graded() {
         return grading != null;
     }

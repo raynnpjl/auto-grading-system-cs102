@@ -139,7 +139,9 @@ class SimilarityCheckerTest {
         SimilarityPair pair = report.pairs().getFirst();
         assertEquals(100, pair.percent());
         assertTrue(pair.flagged());
-        assertEquals(List.of(new SimilarityPair.LineRange("Q1a.java", 5, 19)), pair.linesOf("alice.2026"));
+        List<SimilarityPair.LineRange> aliceLines =
+                pair.first().equals("alice.2026") ? pair.firstLines() : pair.secondLines();
+        assertEquals(List.of(new SimilarityPair.LineRange("Q1a.java", 5, 19)), aliceLines);
         assertEquals(1, report.flaggedFor("bob.2026").size());
         assertEquals("Q1a.java lines 5–19; Q3.java lines 8, 10–12", SimilarityPair.describe(List.of(
                 new SimilarityPair.LineRange("Q1a.java", 5, 19), new SimilarityPair.LineRange("Q3.java", 8, 8),

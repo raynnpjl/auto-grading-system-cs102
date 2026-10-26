@@ -1,5 +1,6 @@
 package grading.submission;
 
+import grading.assessment.AssessmentDefinition;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -16,10 +17,22 @@ public final class SubmissionCorrectionService {
 
     private final SubmissionPreparationService validationService;
 
+    /**
+     * @param validationService revalidates a submission after it is corrected
+     */
     public SubmissionCorrectionService(SubmissionPreparationService validationService) {
         this.validationService = Objects.requireNonNull(validationService, "validationService");
     }
 
+    /**
+     * Renames a normalized copy after the confirmed student and rewrites its headers, then revalidates it.
+     *
+     * @param existing            the submission whose owner was unknown
+     * @param identity            the identity the marker confirmed
+     * @param correctionWorkspace where the corrected copy is written
+     * @return the revalidated submission
+     * @throws IOException if the corrected copy cannot be written
+     */
     public SubmissionValidationResult applyIdentity(
             SubmissionValidationResult existing,
             StudentIdentity identity,
@@ -95,7 +108,7 @@ public final class SubmissionCorrectionService {
         try (Stream<Path> paths = Files.walk(root)) {
             for (Path javaFile : paths
                     .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .filter(path -> path.getFileName().toString().endsWith(AssessmentDefinition.JAVA_EXTENSION))
                     .toList()) {
                 String source = Files.readString(javaFile, StandardCharsets.UTF_8);
                 Files.writeString(javaFile, verifiedHeader + source, StandardCharsets.UTF_8);

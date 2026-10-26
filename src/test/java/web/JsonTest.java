@@ -1,4 +1,4 @@
-package grading.common;
+package web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 

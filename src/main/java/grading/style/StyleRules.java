@@ -74,6 +74,7 @@ public final class StyleRules {
         return rules.getOrDefault(id, new Rule(id, "Not mapped to a guide section", id, DEFAULT_WEIGHT, false));
     }
 
+    /** Every rule that is checked, ordered by guide section. */
     public List<Rule> all() {
         return rules.values().stream()
                 .sorted(Comparator.comparingInt((Rule rule) -> sectionNumber(rule.section()))
@@ -81,6 +82,7 @@ public final class StyleRules {
                 .toList();
     }
 
+    /** The guide rules that are not checked automatically. */
     public List<UncheckedRule> unchecked() {
         return unchecked;
     }

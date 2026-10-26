@@ -41,6 +41,7 @@ public abstract sealed class SubmissionSource permits ZipSubmission, FolderSubmi
             throws IOException;
 
     protected static SubmissionFinding wrongUsernameFolder(String message) {
-        return new SubmissionFinding(FindingSeverity.WARNING, "WRONG_USERNAME_FOLDER", message, true);
+        return SubmissionFinding.corrected("WRONG_USERNAME_FOLDER",
+                message);
     }
 }

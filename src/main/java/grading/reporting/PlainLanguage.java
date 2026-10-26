@@ -1,13 +1,43 @@
 package grading.reporting;
 
+import grading.common.Messages;
 import grading.execution.QuestionGradingResult;
 import grading.execution.TestCaseResult;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /** Wording and Markdown helpers shared by the attempt reports. */
 final class PlainLanguage {
 
+    /** How the reports show when an attempt started or finished. */
+    static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm:ss", Locale.ROOT);
+
     private PlainLanguage() {
+    }
+
+    /**
+     * Adds a "## title" section. A section that cannot be produced is replaced by a note, so the rest
+     * of the report survives.
+     */
+    static void section(StringBuilder report, String title, Supplier<String> content) {
+        report.append("## ").append(title).append("\n\n");
+        try {
+            report.append(content.get());
+        } catch (RuntimeException exception) {
+            report.append("This section could not be produced: ").append(Messages.describe(exception))
+                    .append(". The rest of the report is unaffected.\n");
+        }
+        report.append('\n');
+    }
+
+    /** One Markdown table row, "| a | b |"; each cell must already be safe inside a table. */
+    static String row(Object... cells) {
+        StringBuilder row = new StringBuilder("|");
+        for (Object cell : cells) {
+            row.append(' ').append(cell).append(" |");
+        }
+        return row.append('\n').toString();
     }
 
     static String status(QuestionGradingResult.Status status) {

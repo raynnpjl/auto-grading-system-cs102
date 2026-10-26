@@ -18,11 +18,16 @@ public final class SessionRefusal extends RuntimeException {
 
     private final Reason reason;
 
+    /**
+     * @param reason  why the request was refused
+     * @param message what to tell the user
+     */
     public SessionRefusal(Reason reason, String message) {
         super(message);
         this.reason = reason;
     }
 
+    /** Why the request was refused. */
     public Reason reason() {
         return reason;
     }

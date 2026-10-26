@@ -20,7 +20,6 @@ final class FeedbackContext {
     }
 
     /** Ends the name of every tester file, such as Q1aTester.java; the rest are the student's own files. */
-    static final String TESTER_SUFFIX = "Tester.java";
 
     private final QuestionGradingResult result;
     private final List<TestCaseResult> cases;

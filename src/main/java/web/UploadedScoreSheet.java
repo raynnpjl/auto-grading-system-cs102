@@ -1,6 +1,5 @@
 package web;
 
-import grading.common.Json;
 import grading.reporting.ScoreSheet;
 import grading.reporting.ScoreSheetPreview;
 import grading.reporting.ScoreSheetUpdater;
@@ -26,13 +25,21 @@ record UploadedScoreSheet(ScoreSheet sheet, String name) {
      * @throws IOException if the upload is not a score sheet exported from the LMS
      */
     static UploadedScoreSheet load(byte[] body, String name, Path temporaryFolder) throws IOException {
-        Path temporary = Files.createTempFile(temporaryFolder, "score-sheet-", ".csv");
+        // Saved under the chosen file's name, so an error about the sheet names the file the user picked.
+        Path folder = Files.createTempDirectory(temporaryFolder, "score-sheet-");
+        Path temporary = folder.resolve(safeFileName(name));
         try {
             Files.write(temporary, body);
             return new UploadedScoreSheet(ScoreSheet.load(temporary), name);
         } finally {
             Files.deleteIfExists(temporary);
+            Files.deleteIfExists(folder);
         }
+    }
+
+    private static String safeFileName(String name) {
+        String safe = name.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, "_");
+        return safe.isBlank() || safe.startsWith(".") ? "score-sheet.csv" : safe;
     }
 
     /** What filling the sheet with these scores would change, as the JSON the page shows. */
@@ -60,6 +67,6 @@ record UploadedScoreSheet(ScoreSheet sheet, String name) {
 
     /** The name the filled sheet is downloaded as. */
     String downloadName() {
-        return "graded-" + name.replaceAll(UNSAFE_FILE_NAME_CHARACTERS, "_");
+        return "graded-" + safeFileName(name);
     }
 }

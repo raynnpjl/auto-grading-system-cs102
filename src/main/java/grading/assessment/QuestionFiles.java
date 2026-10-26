@@ -17,6 +17,7 @@ public record QuestionFiles(List<Path> sources, List<Path> supportClasses, List<
         runtimeFiles = List.copyOf(runtimeFiles);
     }
 
+    /** Whether these are exactly the files the question needs, by name. */
     public boolean matches(AssessmentDefinition.Question question) {
         return hasNames(sources, question.sources())
                 && hasNames(supportClasses, question.supportClasses())
@@ -34,6 +35,11 @@ public record QuestionFiles(List<Path> sources, List<Path> supportClasses, List<
                 .toList();
     }
 
+    /**
+     * Checks that every file still exists and can be read before it is compiled.
+     *
+     * @throws IOException naming the first file that is missing or unreadable
+     */
     public void requireReadable() throws IOException {
         for (Path file : Stream.of(sources, supportClasses, runtimeFiles).flatMap(List::stream).toList()) {
             if (!Files.isRegularFile(file) || !Files.isReadable(file)) {

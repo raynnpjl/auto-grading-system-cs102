@@ -55,23 +55,17 @@ final class UsernameResolver {
 
         if (identity.email().isPresent()) {
             String inferred = identity.email().get().substring(0, identity.email().get().indexOf('@'));
-            findings.add(new SubmissionFinding(
-                    FindingSeverity.WARNING,
-                    "WRONG_SUBMISSION_NAME",
+            findings.add(SubmissionFinding.corrected("WRONG_SUBMISSION_NAME",
                     "The ZIP/folder still used a generic or template name; the normalized copy uses "
-                            + inferred + " from a consistent Java header email.",
-                    true));
+                            + inferred + " from a consistent Java header email."));
             return inferred;
         }
 
         String placeholder = IdentitySuggestions.PLACEHOLDER_PREFIX + Integer.toUnsignedString(
                 submission.toAbsolutePath().normalize().toString().hashCode(), Character.MAX_RADIX);
-        findings.add(new SubmissionFinding(
-                FindingSeverity.ERROR,
-                "USERNAME_UNKNOWN",
+        findings.add(SubmissionFinding.error("USERNAME_UNKNOWN",
                 "The submission still uses a generic/template name and no header email was available "
-                        + "to identify the student. It was isolated as " + placeholder + ".",
-                false));
+                        + "to identify the student. It was isolated as " + placeholder + "."));
         return placeholder;
     }
 

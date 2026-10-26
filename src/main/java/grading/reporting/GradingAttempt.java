@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * One grading attempt: when it ran, what it graded with which settings, and the outcome for every
@@ -41,6 +43,8 @@ import java.util.function.Function;
 public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, Path testerFolder,
         Path submissionsFolder, GradingSettings settings, StyleRules styleRules, String checkstyleVersion,
         List<StudentOutcome> students, SimilarityReport similarity) {
+
+    private static final Logger LOG = Logger.getLogger(GradingAttempt.class.getName());
 
     public GradingAttempt {
         students = List.copyOf(students);
@@ -102,7 +106,7 @@ public record GradingAttempt(LocalDateTime startedAt, LocalDateTime finishedAt, 
         try {
             return feedback.forStudent(submission, grading);
         } catch (RuntimeException exception) {
-            exception.printStackTrace();
+            LOG.log(Level.WARNING, "Could not explain the mistakes of " + grading.username(), exception);
             return List.of();
         }
     }

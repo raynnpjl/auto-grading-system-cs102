@@ -1,5 +1,6 @@
 package grading.execution;
 
+import grading.common.FileTrees;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -19,7 +20,6 @@ final class BoundedProcessRunner implements ProcessRunner {
 
     private static final long POLL_MILLIS = 20;
     private static final Duration CLEANUP_TIMEOUT = Duration.ofSeconds(2);
-    private static final int BUFFER_BYTES = 8192;
 
     private final int maxOutputBytes;
 
@@ -147,7 +147,7 @@ final class BoundedProcessRunner implements ProcessRunner {
         @Override
         public void run() {
             try (input) {
-                byte[] buffer = new byte[BUFFER_BYTES];
+                byte[] buffer = new byte[FileTrees.BUFFER_BYTES];
                 int count;
                 while ((count = input.read(buffer)) != -1) {
                     int available = limit - bytes.size();

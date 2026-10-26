@@ -1,0 +1,186 @@
+package grading.reporting;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+
+/**
+ * The fonts of a PDF report, and the text handling that depends on them: splitting Markdown inline
+ * text into runs of one font, measuring it, and wrapping it into lines. Characters the standard PDF
+ * fonts cannot show are replaced, so unusual student output never stops a report from being written.
+ */
+final class PdfText {
+
+    /** Line height as a multiple of the text size. */
+    static final float LEADING = 1.3f;
+    // PDFBox measures glyph widths in thousandths of the font size.
+    private static final float GLYPH_UNITS = 1000;
+
+    final PDFont regular = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
+    final PDFont bold = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
+    final PDFont italic = new PDType1Font(Standard14Fonts.FontName.HELVETICA_OBLIQUE);
+    final PDFont mono = new PDType1Font(Standard14Fonts.FontName.COURIER);
+    private final Map<Character, Boolean> printable = new HashMap<>();
+
+    /**
+     * Text drawn in one font.
+     *
+     * @param text the characters, already made printable
+     * @param font the font they are drawn in
+     */
+    record Run(String text, PDFont font) {
+    }
+
+    /** Splits Markdown inline text into runs of one font: **bold**, *italic*, `code` and [links](...). */
+    List<Run> runs(String text, PDFont base) {
+        List<Run> runs = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean strong = base == bold;
+        boolean emphasis = false;
+        int index = 0;
+        while (index < text.length()) {
+            char character = text.charAt(index);
+            if (character == '\\' && index + 1 < text.length()) {
+                current.append(text.charAt(index + 1));
+                index += 2;
+            } else if (character == '`') {
+                int end = text.indexOf('`', index + 1);
+                if (end < 0) {
+                    current.append(character);
+                    index++;
+                    continue;
+                }
+                addRun(runs, current, strong, emphasis);
+                runs.add(new Run(printable(unescape(text.substring(index + 1, end)), mono), mono));
+                index = end + 1;
+            } else if (text.startsWith("**", index)) {
+                addRun(runs, current, strong, emphasis);
+                strong = !strong;
+                index += 2;
+            } else if (character == '*') {
+                addRun(runs, current, strong, emphasis);
+                emphasis = !emphasis;
+                index++;
+            } else if (character == '[' && text.indexOf("](", index) > index && text.indexOf(')', index) > index) {
+                int labelEnd = text.indexOf("](", index);
+                current.append(text, index + 1, labelEnd);
+                index = text.indexOf(')', labelEnd) + 1;
+            } else {
+                current.append(character);
+                index++;
+            }
+        }
+        addRun(runs, current, strong, emphasis);
+        return runs;
+    }
+
+    private void addRun(List<Run> runs, StringBuilder text, boolean strong, boolean emphasis) {
+        if (!text.isEmpty()) {
+            PDFont font = strong ? bold : emphasis ? italic : regular;
+            runs.add(new Run(printable(text.toString(), font), font));
+            text.setLength(0);
+        }
+    }
+
+    private static String unescape(String text) {
+        return text.replace("\\|", "|").replace("\\\\", "\\");
+    }
+
+    /** Breaks runs into lines no wider than {@code width}, splitting a word only when it is longer than a line. */
+    List<List<Run>> wrap(List<Run> runs, float width, float size) throws IOException {
+        List<List<Run>> lines = new ArrayList<>();
+        List<Run> line = new ArrayList<>();
+        float used = 0;
+        for (Run run : runs) {
+            for (String piece : run.text().split("(?<= )")) {
+                float pieceWidth = width(piece, run.font(), size);
+                if (used + pieceWidth > width && used > 0) {
+                    lines.add(line);
+                    line = new ArrayList<>();
+                    used = 0;
+                    piece = piece.stripLeading();
+                    pieceWidth = width(piece, run.font(), size);
+                }
+                while (pieceWidth > width && piece.length() > 1) {
+                    int fit = fitting(piece, run.font(), size, width);
+                    lines.add(List.of(new Run(piece.substring(0, fit), run.font())));
+                    piece = piece.substring(fit);
+                    pieceWidth = width(piece, run.font(), size);
+                }
+                line.add(new Run(piece, run.font()));
+                used += pieceWidth;
+            }
+        }
+        if (!line.isEmpty() || lines.isEmpty()) {
+            lines.add(line);
+        }
+        return lines;
+    }
+
+    // How many leading characters of the text fit in the width; at least one.
+    private static int fitting(String text, PDFont font, float size, float width) throws IOException {
+        int fit = 1;
+        while (fit < text.length() && width(text.substring(0, fit + 1), font, size) <= width) {
+            fit++;
+        }
+        return fit;
+    }
+
+    /** The width of a line of runs at the given size. */
+    static float width(List<Run> runs, float size) throws IOException {
+        float width = 0;
+        for (Run run : runs) {
+            width += width(run.text(), run.font(), size);
+        }
+        return width;
+    }
+
+    /** The width of text in one font at the given size. */
+    static float width(String text, PDFont font, float size) throws IOException {
+        return font.getStringWidth(text) / GLYPH_UNITS * size;
+    }
+
+    /**
+     * The text with every character the font cannot show replaced. The standard PDF fonts cover
+     * Western European text only.
+     */
+    String printable(String text, PDFont font) {
+        StringBuilder printableText = new StringBuilder(text.length());
+        // by code point, so a character outside the basic plane (such as an emoji) becomes one '?'
+        for (int character : text.codePoints().toArray()) {
+            if (character == '\t') {
+                printableText.append("    ");
+            } else if (Character.isISOControl(character)) {
+                continue;
+            } else if (character <= Character.MAX_VALUE && canShow((char) character, font)) {
+                printableText.append((char) character);
+            } else {
+                printableText.append(switch (character) {
+                    case '→' -> "->";
+                    case '←' -> "<-";
+                    case '≤' -> "<=";
+                    case '≥' -> ">=";
+                    case '✓' -> "OK";
+                    default -> "?";
+                });
+            }
+        }
+        return printableText.toString();
+    }
+
+    private boolean canShow(char character, PDFont font) {
+        return printable.computeIfAbsent(character, key -> {
+            try {
+                font.encode(String.valueOf(key));
+                return true;
+            } catch (IOException | IllegalArgumentException exception) {
+                return false;
+            }
+        });
+    }
+}

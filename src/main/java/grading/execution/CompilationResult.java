@@ -14,6 +14,7 @@ public record CompilationResult(
         Path workspace,
         ProcessResult process) implements AutoCloseable {
 
+    /** The folder holding the compiled classes, which the tester runs from. */
     public Path classesDirectory() {
         return workspace.resolve("classes");
     }

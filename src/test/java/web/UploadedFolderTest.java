@@ -18,12 +18,14 @@ import org.junit.jupiter.api.io.TempDir;
 
 class UploadedFolderTest {
 
+    private static final GradingSettings SETTINGS = GradingSettings.current();
+
     @TempDir
     Path temporary;
 
     @Test
     void findsNothingInAnUploadThatIsNotAZip() throws IOException {
-        Optional<Path> folder = UploadedFolder.extract("garbage".getBytes(StandardCharsets.UTF_8), temporary);
+        Optional<Path> folder = UploadedFolder.extract("garbage".getBytes(StandardCharsets.UTF_8), temporary, SETTINGS);
 
         assertTrue(folder.isEmpty());
     }
@@ -32,7 +34,7 @@ class UploadedFolderTest {
     void returnsTheChosenFolderWhenTheZipHoldsOnlyThatFolder() throws IOException {
         byte[] zip = zipOf("Tester-Files/Q1aTester.java");
 
-        Optional<Path> folder = UploadedFolder.extract(zip, temporary);
+        Optional<Path> folder = UploadedFolder.extract(zip, temporary, SETTINGS);
 
         assertEquals(Optional.of(temporary.resolve("Tester-Files")), folder);
         assertTrue(Files.isRegularFile(folder.get().resolve("Q1aTester.java")));
@@ -42,21 +44,21 @@ class UploadedFolderTest {
     void refusesEntriesThatWouldBeWrittenOutsideTheFolder() throws IOException {
         byte[] zip = zipOf("../outside.txt");
 
-        assertThrows(IOException.class, () -> UploadedFolder.extract(zip, temporary.resolve("upload")));
+        assertThrows(IOException.class, () -> UploadedFolder.extract(zip, temporary.resolve("upload"), SETTINGS));
     }
 
     @Test
     void refusesAZipWithMoreEntriesThanTheLimit() throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
-            for (int index = 0; index <= GradingSettings.current().maxZipEntries(); index++) {
+            for (int index = 0; index <= SETTINGS.maxZipEntries(); index++) {
                 zip.putNextEntry(new ZipEntry("upload/file" + index + ".txt"));
                 zip.closeEntry();
             }
         }
 
         IOException refused = assertThrows(IOException.class,
-                () -> UploadedFolder.extract(bytes.toByteArray(), temporary));
+                () -> UploadedFolder.extract(bytes.toByteArray(), temporary, SETTINGS));
         assertEquals("ZIP contains too many entries", refused.getMessage());
     }
 

@@ -100,8 +100,9 @@
               <span class="step-marker" aria-hidden="true">1</span> Tester files
             </h2>
             <label for="tester-folder" class="form-label text-body-secondary">Choose the Tester-Files folder.</label>
+            <!-- Cleared when clicked, so choosing the same folder again (e.g. after fixing it) still uploads it. -->
             <input id="tester-folder" class="form-control" type="file" webkitdirectory :disabled="uploadingTesters || state.running"
-              @change="chooseFolder($event, 'testers')">
+              @click="$event.target.value = ''" @change="chooseFolder($event, 'testers')">
             <div class="small mt-2 d-flex align-items-center gap-2" aria-live="polite"
               :class="testerError ? 'text-danger' : state.testersReady ? 'text-success' : 'text-body-secondary'">
               <span v-if="uploadingTesters" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
@@ -121,7 +122,8 @@
               Choose the folder that holds the student ZIPs or folders.
             </label>
             <input id="submission-folder" class="form-control" type="file" webkitdirectory
-              :disabled="uploadingSubmissions || state.running" @change="chooseFolder($event, 'submissions')">
+              :disabled="uploadingSubmissions || state.running"
+              @click="$event.target.value = ''" @change="chooseFolder($event, 'submissions')">
             <div class="small mt-2 d-flex align-items-center gap-2" aria-live="polite"
               :class="submissionError ? 'text-danger' : state.submissionsReady ? 'text-success' : 'text-body-secondary'">
               <span v-if="uploadingSubmissions" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
@@ -149,6 +151,9 @@
             <button class="btn btn-primary" :disabled="!canRun" @click="runGrading">
               <span v-if="state.running" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
               {{ state.running ? 'Grading…' : hasResults ? 'Grade again' : 'Run grading' }}
+            </button>
+            <button v-if="state.running" class="btn btn-outline-danger" :disabled="cancelling" @click="cancelGrading">
+              {{ cancelling ? 'Cancelling…' : 'Cancel' }}
             </button>
             <a class="btn btn-outline-primary" :class="{ disabled: !state.reportsReady }" href="/api/reports/zip"
               :tabindex="state.reportsReady ? 0 : -1" :aria-disabled="!state.reportsReady">
@@ -210,12 +215,18 @@
     </section>
 
     <!-- Skipped students: confirm their identity -->
-    <section class="card shadow-sm mb-4 border-warning-subtle" v-if="skipped.length">
+    <section class="card shadow-sm mb-4 border-warning-subtle" v-if="skipped.length || identityNotice">
       <h2 class="card-header bg-warning-subtle fs-6 fw-semibold mb-0">Confirm the identity of skipped students</h2>
       <div class="card-body">
-        <p class="small text-body-secondary">These submissions could not be matched to a student, so they were not
-          graded. Enter who they belong to, save, and grade again.</p>
-        <div v-for="s in skipped" :key="s.username" class="row g-2 align-items-end border-bottom pb-3 mb-3">
+        <div v-if="identityNotice" class="alert alert-success d-flex align-items-center py-2" role="status">
+          <span class="me-auto">{{ identityNotice }}</span>
+          <button type="button" class="btn-close" aria-label="Dismiss" @click="identityNotice = ''"></button>
+        </div>
+        <p class="small text-body-secondary" v-if="skipped.length">These submissions could not be matched to a
+          student, so they were not graded. Enter who they belong to, save, and grade again.</p>
+        <!-- One form per student: the browser checks each field before sending, and errors show on this row. -->
+        <form v-for="s in skipped" :key="s.username" class="row g-2 align-items-end border-bottom pb-3 mb-3"
+          @submit.prevent="confirmIdentity(s.username)">
           <div class="col-md-2">
             <div class="small text-body-secondary">Uploaded as</div>
             <div class="font-monospace small">{{ s.username }}</div>
@@ -223,23 +234,34 @@
           <div class="col-md-3">
             <label class="form-label small mb-1" :for="'identity-username-' + s.username">Username</label>
             <input :id="'identity-username-' + s.username" class="form-control form-control-sm"
-              v-model="identityForms[s.username].username" placeholder="jing.lim.2021">
+              :class="{ 'is-invalid': identityForms[s.username].field === 'username' }"
+              v-model="identityForms[s.username].username" placeholder="jing.lim.2021" required
+              pattern="[A-Za-z0-9][A-Za-z0-9._\-]{1,79}"
+              title="Letters, numbers, dots, underscores or hyphens, for example jing.lim.2021">
           </div>
           <div class="col-md-3">
             <label class="form-label small mb-1" :for="'identity-name-' + s.username">Name</label>
             <input :id="'identity-name-' + s.username" class="form-control form-control-sm"
-              v-model="identityForms[s.username].name" placeholder="Jing Lim">
+              :class="{ 'is-invalid': identityForms[s.username].field === 'name' }"
+              v-model="identityForms[s.username].name" placeholder="Jing Lim" required minlength="2" maxlength="100">
           </div>
           <div class="col-md-3">
             <label class="form-label small mb-1" :for="'identity-email-' + s.username">Email</label>
-            <input :id="'identity-email-' + s.username" class="form-control form-control-sm"
-              v-model="identityForms[s.username].email" placeholder="jing.lim.2021@smu.edu.sg">
+            <input :id="'identity-email-' + s.username" class="form-control form-control-sm" type="email"
+              :class="{ 'is-invalid': identityForms[s.username].field === 'email' }"
+              v-model="identityForms[s.username].email" placeholder="jing.lim.2021@smu.edu.sg" required>
           </div>
           <div class="col-md-1">
-            <button class="btn btn-sm btn-primary w-100" @click="confirmIdentity(s.username)">Save</button>
+            <button type="submit" class="btn btn-sm btn-primary w-100" :disabled="identityForms[s.username].saving">
+              <span v-if="identityForms[s.username].saving" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+              <span :class="{ 'visually-hidden': identityForms[s.username].saving }">Save</span>
+            </button>
           </div>
-          <div class="col-12 small text-danger">{{ s.issues.join('; ') }}</div>
-        </div>
+          <div v-if="identityForms[s.username].error" class="col-12 small text-danger fw-semibold" role="alert">
+            {{ identityForms[s.username].error }}
+          </div>
+          <div class="col-12 small text-body-secondary">{{ s.issues.join('; ') }}</div>
+        </form>
       </div>
     </section>
 
@@ -366,7 +388,7 @@
   </main>
 
   <script>
-    const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
+    const { createApp, ref, computed, nextTick, onMounted, onBeforeUnmount } = Vue;
 
     createApp({
       setup() {
@@ -387,21 +409,62 @@
         const message = ref('');
         const connectionError = ref('');
         const identityForms = ref({});
+        const identityNotice = ref('');
+        const cancelling = ref(false);
         const preview = ref(null);
         const sheetStatus = ref('');
         const sheetError = ref(false);
         const POLL_DELAY = 1000;
         const MAX_POLL_DELAY = 10000;
+        const CONNECTION_LOST = 'Cannot reach the grader. Is the application still running?';
+        const EMPTY_FOLDER = 'That folder is empty. Choose a folder that contains files.';
+        const REPLACE_RESULTS = 'The current marks will be cleared. Reports already written stay in the '
+          + 'grading-reports folder. Continue?';
         let pollDelay = POLL_DELAY;
         let timerId = null;
+
+        // Sends a request and returns its JSON. Throws an Error whose message can be shown as it is, and
+        // whose field names the rejected form value when the grader says which one it was.
+        async function request(url, options) {
+          let response;
+          try {
+            response = await fetch(url, options);
+          } catch (error) {
+            throw new Error(CONNECTION_LOST);
+          }
+          let data = {};
+          try {
+            data = await response.json();
+          } catch (error) {
+            // Not JSON; the status below still says whether it worked.
+          }
+          if (!response.ok) {
+            const failure = new Error(data.error || `The grader could not do that (error ${response.status}).`);
+            failure.field = data.field;
+            throw failure;
+          }
+          return data;
+        }
 
         // Choosing a folder uploads it straight away; there is no separate Upload button.
         async function chooseFolder(event, kind) {
           const files = Array.from(event.target.files);
-          if (files.length === 0) return;
+          const showError = (text) => {
+            if (kind === 'testers') {
+              testerError.value = true;
+              testerMessage.value = text;
+            } else {
+              submissionError.value = true;
+              submissionMessage.value = text;
+            }
+          };
+          if (files.length === 0) {
+            showError(EMPTY_FOLDER);
+            return;
+          }
           if (kind === 'testers') {
             await uploadTesters(files);
-          } else {
+          } else if (!hasResults.value || confirm('Load these submissions? ' + REPLACE_RESULTS)) {
             await uploadSubmissions(files);
           }
         }
@@ -415,15 +478,8 @@
           return await zip.generateAsync({ type: 'blob' });
         }
 
-        async function postZip(url, zipBlob) {
-          const response = await fetch(url, {
-            method: 'POST',
-            body: zipBlob,
-            headers: { 'Content-Type': 'application/zip' }
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error || 'Upload failed');
-          return data;
+        function postZip(url, zipBlob) {
+          return request(url, { method: 'POST', body: zipBlob, headers: { 'Content-Type': 'application/zip' } });
         }
 
         async function uploadTesters(files) {
@@ -472,13 +528,11 @@
           sheetError.value = false;
           sheetStatus.value = `Uploading ${file.name}…`;
           try {
-            const response = await fetch('/api/scoresheet?name=' + encodeURIComponent(file.name), {
+            await request('/api/scoresheet?name=' + encodeURIComponent(file.name), {
               method: 'POST',
               body: file,
               headers: { 'Content-Type': 'text/csv' }
             });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Upload failed');
             sheetStatus.value = `${file.name} loaded. The original file is not changed.`;
           } catch (error) {
             sheetError.value = true;
@@ -498,9 +552,12 @@
             const response = await fetch('/api/progress', { cache: 'no-store' });
             state.value = await response.json();
             connectionError.value = '';
+            if (!state.value.running) cancelling.value = false;
             for (const s of state.value.students) {
               if (s.status === 'skipped' && !identityForms.value[s.username]) {
-                identityForms.value[s.username] = { username: '', name: '', email: '' };
+                identityForms.value[s.username] = {
+                  username: '', name: '', email: '', error: '', field: '', saving: false,
+                };
               }
             }
             if (state.value.scoreSheetName && !state.value.running) {
@@ -524,32 +581,65 @@
           timerId = setTimeout(poll, pollDelay);
         }
 
+        // Saves a skipped student's identity; any error is shown on that student's row, at the field it is about.
         async function confirmIdentity(target) {
           const form = identityForms.value[target];
           const body = new URLSearchParams({
             target, username: form.username, name: form.name, email: form.email,
           });
-          const response = await fetch('/api/identity', { method: 'POST', body });
-          const data = await response.json();
-          message.value = response.ok ? '' : data.error;
+          form.error = '';
+          form.field = '';
+          form.saving = true;
+          try {
+            await request('/api/identity', { method: 'POST', body });
+            identityNotice.value = `Saved ${form.username.trim()}. Grade them with the Grade button in the `
+              + 'Students table, or run grading again.';
+            delete identityForms.value[target];
+          } catch (error) {
+            form.error = error.message;
+            form.field = error.field || '';
+            if (form.field) {
+              await nextTick();
+              document.getElementById(`identity-${form.field}-${target}`)?.focus();
+            }
+          } finally {
+            form.saving = false;
+          }
+          await refresh();
+        }
+
+        // Starts grading with the given request; any error is shown in the Run grading card.
+        async function startGrading(url) {
+          message.value = '';
+          identityNotice.value = '';
+          try {
+            await request(url, { method: 'POST' });
+          } catch (error) {
+            message.value = error.message;
+          }
           await refresh();
         }
 
         // Grades one student again; everyone else keeps their result.
-        async function regrade(username) {
-          message.value = '';
-          const response = await fetch('/api/grade/student?username=' + encodeURIComponent(username),
-            { method: 'POST' });
-          const data = await response.json();
-          if (!response.ok) message.value = data.error;
-          await refresh();
+        function regrade(username) {
+          return startGrading('/api/grade/student?username=' + encodeURIComponent(username));
         }
 
         async function runGrading() {
+          if (hasResults.value && !confirm('Grade every student again? ' + REPLACE_RESULTS)) return;
+          await startGrading('/api/grade');
+        }
+
+        // Stops grading; the grader kills the running programs and shows the results from before again.
+        async function cancelGrading() {
           message.value = '';
-          const response = await fetch('/api/grade', { method: 'POST' });
-          const data = await response.json();
-          if (!response.ok) message.value = data.error;
+          cancelling.value = true;
+          try {
+            await request('/api/grade/cancel', { method: 'POST' });
+          } catch (error) {
+            cancelling.value = false;
+            message.value = error.message;
+          }
           await refresh();
         }
 
@@ -673,8 +763,8 @@
         return {
           state, uploadingTesters, uploadingSubmissions,
           testerMessage, submissionMessage, testerError, submissionError, message, connectionError,
-          identityForms, preview, sheetStatus, sheetError,
-          chooseFolder, uploadScoreSheet, confirmIdentity, runGrading, regrade,
+          identityForms, identityNotice, cancelling, preview, sheetStatus, sheetError,
+          chooseFolder, uploadScoreSheet, confirmIdentity, runGrading, regrade, cancelGrading,
           percent, elapsed, skipped, hasResults, canRun, canDownloadSheet, sheetSummary, steps,
           headline, countsText, nextHint, cell, statusLabel, statusBadge, statusHint, openFeedback, toggleFeedback, codeParts,
         };

@@ -55,17 +55,6 @@ final class TesterTestCases {
         return Optional.of(new TesterTestCases(source, cases));
     }
 
-    int count() {
-        return cases.size();
-    }
-
-    /** The tester source with the given 1-based test cases replaced by a timed-out failure. */
-    String withSkipped(Set<Integer> skipped) {
-        Map<Integer, String> withoutDescriptions = new HashMap<>();
-        skipped.forEach(index -> withoutDescriptions.put(index, ""));
-        return withSkipped(withoutDescriptions);
-    }
-
     /**
      * The tester source with the given 1-based test cases replaced by a timed-out failure that names
      * what the test case was calling, so reports can still describe it.

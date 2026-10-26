@@ -28,7 +28,7 @@ public record SubmissionValidationResult(
         List<SubmissionFinding> findings,
         HeaderIdentity author,
         List<FileCorrection> corrections,
-        Map<String, Path> originalSources) implements ValidationResult {
+        Map<String, Path> originalSources) {
 
     public SubmissionValidationResult {
         Objects.requireNonNull(source, "source");
@@ -47,6 +47,12 @@ public record SubmissionValidationResult(
                 Map.of());
     }
 
+    /** Whether any finding is an error. */
+    public boolean hasErrors() {
+        return findings.stream().anyMatch(finding -> finding.severity() == FindingSeverity.ERROR);
+    }
+
+    /** How many problems were corrected automatically in the normalized copy. */
     public long correctedCount() {
         return findings.stream().filter(SubmissionFinding::corrected).count();
     }
@@ -59,13 +65,5 @@ public record SubmissionValidationResult(
     /** The question's files from this submission; empty when none were found. */
     public QuestionFiles files(AssessmentDefinition.Question question) {
         return questionFiles.getOrDefault(question.id(), new QuestionFiles(List.of(), List.of(), List.of()));
-    }
-
-    /** Question ids that will score zero because some of their files are missing. */
-    public List<String> missingQuestions() {
-        return AssessmentDefinition.QUESTIONS.stream()
-                .filter(question -> !files(question).missingFiles(question).isEmpty())
-                .map(AssessmentDefinition.Question::id)
-                .toList();
     }
 }

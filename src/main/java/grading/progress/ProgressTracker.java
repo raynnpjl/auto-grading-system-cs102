@@ -1,9 +1,6 @@
 package grading.progress;
 
-import grading.assessment.AssessmentDefinition;
-import grading.common.Json;
 import grading.feedback.Feedback;
-import grading.feedback.SourceLocation;
 import grading.similarity.SimilarityPair;
 import grading.submission.FindingSeverity;
 import grading.submission.SubmissionValidationResult;
@@ -13,7 +10,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /** Holds the live state of a grading run so the dashboard can show it. Every method is thread-safe. */
 public final class ProgressTracker {
@@ -202,39 +198,14 @@ public final class ProgressTracker {
     }
 
     /**
-     * Builds the JSON sent to the browser.
+     * The state of the run now, for the page to show.
      *
-     * @return the whole state of the run as a JSON string
+     * @return a copy that later changes do not affect
      */
-    public synchronized String toJson() {
+    public synchronized ProgressSnapshot snapshot() {
         long done = rows.values().stream().filter(row -> row.finished).count();
-        List<String> questionIds = AssessmentDefinition.QUESTIONS.stream()
-                .map(AssessmentDefinition.Question::id)
-                .toList();
-        return "{"
-                + "\"running\":" + running
-                + ",\"done\":" + done
-                + ",\"total\":" + rows.size()
-                + ",\"elapsedSeconds\":" + elapsedSeconds()
-                + ",\"currentStudent\":" + Json.quote(currentStudent)
-                + ",\"currentStep\":" + Json.quote(currentStep)
-                + ",\"questions\":" + Json.strings(questionIds)
-                + ",\"students\":" + rows.values().stream().map(Row::toJson)
-                        .collect(Collectors.joining(",", "[", "]"))
-                + ",\"activity\":" + Json.strings(activity)
-                + ",\"similarPairs\":" + Json.array(similarPairs.stream().map(ProgressTracker::pairJson).toList())
-                + "}";
-    }
-
-    private static String pairJson(SimilarityPair pair) {
-        return "{\"question\":" + Json.quote(pair.questionId())
-                + ",\"first\":" + Json.quote(pair.first())
-                + ",\"second\":" + Json.quote(pair.second())
-                + ",\"percent\":" + pair.percent()
-                + ",\"flagged\":" + pair.flagged()
-                + ",\"firstLines\":" + Json.quote(SimilarityPair.describe(pair.firstLines()))
-                + ",\"secondLines\":" + Json.quote(SimilarityPair.describe(pair.secondLines()))
-                + "}";
+        return new ProgressSnapshot(running, done, elapsedSeconds(), currentStudent, currentStep,
+                rows.values().stream().map(Row::snapshot).toList(), activity, similarPairs);
     }
 
     private Row rows(String username) {
@@ -264,30 +235,10 @@ public final class ProgressTracker {
             this.username = username;
         }
 
-        String toJson() {
-            double total = scores.values().stream().mapToDouble(Double::doubleValue).sum();
-            return "{"
-                    + "\"username\":" + Json.quote(username)
-                    + ",\"status\":" + Json.quote(flags.isEmpty() ? status : "needs-review")
-                    + ",\"finished\":" + finished
-                    + ",\"formatFixed\":" + formatFixed
-                    + ",\"scores\":" + scores.entrySet().stream()
-                            .map(entry -> Json.quote(entry.getKey()) + ":" + entry.getValue())
-                            .collect(Collectors.joining(",", "{", "}"))
-                    + ",\"total\":" + total
-                    + ",\"issues\":" + Json.strings(issues)
-                    + ",\"flags\":" + Json.strings(flags)
-                    + ",\"feedback\":" + Json.array(feedback.stream().map(Row::feedbackJson).toList())
-                    + "}";
-        }
-
-        private static String feedbackJson(Feedback feedback) {
-            return "{\"question\":" + Json.quote(feedback.questionId())
-                    + ",\"kind\":" + Json.quote(feedback.kind())
-                    + ",\"where\":" + Json.quote(feedback.location().map(SourceLocation::label).orElse(""))
-                    + ",\"code\":" + Json.quote(feedback.location().map(SourceLocation::code).orElse(""))
-                    + ",\"message\":" + Json.quote(feedback.message())
-                    + "}";
+        // A flagged student needs review whatever their grading status was.
+        StudentProgress snapshot() {
+            return new StudentProgress(username, flags.isEmpty() ? status : "needs-review", finished, formatFixed,
+                    scores, issues, flags, feedback);
         }
     }
 }

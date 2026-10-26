@@ -1,5 +1,6 @@
 package grading.feedback;
 
+import grading.assessment.AssessmentDefinition;
 import grading.execution.QuestionGradingResult;
 import grading.execution.TestCaseResult;
 import java.util.ArrayList;
@@ -82,7 +83,7 @@ final class RuntimeExceptionRule implements FeedbackRule {
                 message = header.group(2);
                 located = false;
             } else if (type != null && !located && frame.find()
-                    && !frame.group(1).endsWith(FeedbackContext.TESTER_SUFFIX)
+                    && !frame.group(1).endsWith(AssessmentDefinition.TESTER_SUFFIX)
                     && context.source(frame.group(1)).isPresent()) {
                 thrown.add(new Thrown(type, message, frame.group(1), Integer.parseInt(frame.group(2))));
                 located = true;

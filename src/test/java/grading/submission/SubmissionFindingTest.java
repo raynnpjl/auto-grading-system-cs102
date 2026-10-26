@@ -22,6 +22,7 @@ class SubmissionFindingTest {
         "JAVA_FILE_UNREADABLE",
         "UNSAFE_ZIP_ENTRY",
         "SUBMISSION_UNREADABLE",
+        "NO_TESTER_FILES",
         "MISSING_TESTER_FILE",
         "DUPLICATE_TESTER_FILE",
         "WRONG_TESTER_FILENAME_CASE",

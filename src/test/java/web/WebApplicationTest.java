@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
+import grading.config.GradingSettings;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -38,7 +39,7 @@ class WebApplicationTest {
 
     @BeforeEach
     void startServer() throws IOException {
-        app = new WebApplication();
+        app = new WebApplication(GradingSettings.current());
         base = "http://127.0.0.1:" + app.start(0);
     }
 
@@ -141,6 +142,62 @@ class WebApplicationTest {
         assertTrue(submissionReply.body().contains("Wait until grading has finished."), submissionReply.body());
 
         assertEquals(5.0, totalOf(waitForGradingToFinish(), "alice"));
+    }
+
+    @Test
+    void cancelsGradingAndKeepsNoMarks() throws Exception {
+        Path testers = createTesters();
+        write("testers/Q1aTester.java", "public class Q1aTester extends Q1a { public static void main(String[] args)"
+                + " throws InterruptedException { Thread.sleep(60000); System.out.println(score()); } }");
+        Path batch = temporary.resolve("batch");
+        createSubmission(batch, "alice", 1.0);
+        assertEquals(200, post("/api/testers", zipFolder(testers)).statusCode());
+        assertEquals(200, post("/api/submissions", zipFolder(batch)).statusCode());
+
+        HttpResponse<String> idle = post("/api/grade/cancel", new byte[0]);
+        assertEquals(400, idle.statusCode());
+        assertTrue(idle.body().contains("Grading is not running."), idle.body());
+
+        assertEquals(202, post("/api/grade", new byte[0]).statusCode());
+        waitForProgress("\"running\":true");
+        assertEquals(202, post("/api/grade/cancel", new byte[0]).statusCode());
+
+        String progress = waitForProgress("Grading cancelled.");
+        assertTrue(progress.contains("\"reportsReady\":false"), progress);
+        assertTrue(progress.contains("No marks were kept."), progress);
+    }
+
+    @Test
+    void namesTheRejectedFieldOfAnIdentity() throws Exception {
+        HttpResponse<String> response = post("/api/identity",
+                "target=x&username=jing.lim.2021&name=Jing%20Lim&email=someone%40smu.edu.sg".getBytes());
+        assertEquals(400, response.statusCode());
+        assertTrue(response.body().contains("\"field\":\"email\""), response.body());
+    }
+
+    @Test
+    void keepsTheLoadedTestersWhenTheWrongFolderIsChosen() throws Exception {
+        assertEquals(200, post("/api/testers", zipFolder(createTesters())).statusCode());
+        write("wrong/Q1a.java", "public class Q1a { }");
+
+        HttpResponse<String> reply = post("/api/testers", zipFolder(temporary.resolve("wrong")));
+        assertEquals(200, reply.statusCode());
+        assertTrue(reply.body().contains("\"valid\":false"), reply.body());
+        assertTrue(reply.body().contains("doesn't contain any tester files"), reply.body());
+        assertTrue(reply.body().contains("the previous ones are still used"), reply.body());
+        assertTrue(get("/api/progress").body().contains("\"testersReady\":true"));
+    }
+
+    private String waitForProgress(String expected) throws Exception {
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < deadline) {
+            String body = get("/api/progress").body();
+            if (body.contains(expected)) {
+                return body;
+            }
+            Thread.sleep(100);
+        }
+        return fail("The progress never contained " + expected);
     }
 
     private HttpResponse<String> get(String path) throws Exception {

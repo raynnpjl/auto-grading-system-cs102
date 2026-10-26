@@ -12,7 +12,8 @@ import java.util.zip.ZipInputStream;
 /** Operations on whole folder trees. */
 public final class FileTrees {
 
-    private static final int BUFFER_BYTES = 8192;
+    /** The buffer size for copying streams. */
+    public static final int BUFFER_BYTES = 8192;
 
     private FileTrees() {
     }

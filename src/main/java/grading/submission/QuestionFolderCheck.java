@@ -11,11 +11,8 @@ public final class QuestionFolderCheck implements SubmissionCheck {
     public void inspect(SubmissionContext submission, List<SubmissionFinding> findings) throws IOException {
         for (String folder : AssessmentDefinition.questionFolders()) {
             if (!FileSearch.containsFolderNamed(submission.content(), folder)) {
-                findings.add(new SubmissionFinding(
-                        FindingSeverity.WARNING,
-                        "MISSING_QUESTION_FOLDER",
-                        folder + " was missing; it will be created if its Java file can be found.",
-                        true));
+                findings.add(SubmissionFinding.corrected("MISSING_QUESTION_FOLDER",
+                        folder + " was missing; it will be created if its Java file can be found."));
             }
         }
     }

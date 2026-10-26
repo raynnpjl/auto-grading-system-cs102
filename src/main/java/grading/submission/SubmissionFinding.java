@@ -59,6 +59,7 @@ public record SubmissionFinding(
                     + "request a clean resubmission if the required source was stored in that unsafe path."),
             Map.entry("SUBMISSION_UNREADABLE", "Open or extract this submission manually, repair the archive/folder "
                     + "or request a replacement, then import it again. The remaining batch can still be graded."),
+            Map.entry("NO_TESTER_FILES", "Choose the Tester-Files folder."),
             Map.entry("MISSING_TESTER_FILE", "Add the named official tester file to the selected Tester-Files "
                     + "folder, then import that folder again."),
             Map.entry("DUPLICATE_TESTER_FILE", "Keep the approved tester version and remove or move the duplicate "
@@ -81,6 +82,26 @@ public record SubmissionFinding(
         Objects.requireNonNull(severity, "severity");
         Objects.requireNonNull(code, "code");
         Objects.requireNonNull(message, "message");
+    }
+
+    /** An error the application could not correct. */
+    public static SubmissionFinding error(String code, String message) {
+        return new SubmissionFinding(FindingSeverity.ERROR, code, message, false);
+    }
+
+    /** Something worth knowing that needs no action. */
+    public static SubmissionFinding info(String code, String message) {
+        return new SubmissionFinding(FindingSeverity.INFO, code, message, false);
+    }
+
+    /** A warning the application could not correct. */
+    public static SubmissionFinding warning(String code, String message) {
+        return new SubmissionFinding(FindingSeverity.WARNING, code, message, false);
+    }
+
+    /** A problem the application already corrected in the normalized copy. */
+    public static SubmissionFinding corrected(String code, String message) {
+        return new SubmissionFinding(FindingSeverity.WARNING, code, message, true);
     }
 
     /** An unresolved error about who owns the submission, which the marker must confirm. */

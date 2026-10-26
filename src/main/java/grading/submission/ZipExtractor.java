@@ -41,11 +41,8 @@ final class ZipExtractor {
 
                 Path target = destination.resolve(entry.getName()).normalize();
                 if (!target.toAbsolutePath().normalize().startsWith(normalizedDestination)) {
-                    findings.add(new SubmissionFinding(
-                            FindingSeverity.ERROR,
-                            "UNSAFE_ZIP_ENTRY",
-                            "Skipped unsafe ZIP entry " + entry.getName() + ".",
-                            false));
+                    findings.add(SubmissionFinding.error("UNSAFE_ZIP_ENTRY",
+                            "Skipped unsafe ZIP entry " + entry.getName() + "."));
                     zip.closeEntry();
                     continue;
                 }

@@ -19,6 +19,7 @@ public record ProcessResult(
         EXITED, TIMED_OUT, OUTPUT_LIMIT_EXCEEDED
     }
 
+    /** Whether the process finished by itself with exit code 0. */
     public boolean succeeded() {
         return status == Status.EXITED && exitCode == 0;
     }

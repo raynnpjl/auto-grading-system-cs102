@@ -40,10 +40,8 @@ final class CommonMistakesFormatter {
         StringBuilder text = new StringBuilder("Each student's report explains their own mistakes at the line of "
                 + "their code. Across the class:\n\n| Question | Mistake | Students | Who |\n|---|---|---|---|\n");
         for (Map.Entry<Mistake, Set<String>> row : rows) {
-            text.append("| ").append(row.getKey().questionId())
-                    .append(" | ").append(PlainLanguage.cell(row.getKey().kind()))
-                    .append(" | ").append(row.getValue().size()).append(" of ").append(graded)
-                    .append(" | ").append(PlainLanguage.cell(String.join(", ", row.getValue()))).append(" |\n");
+            text.append(PlainLanguage.row(row.getKey().questionId(), PlainLanguage.cell(row.getKey().kind()),
+                    row.getValue().size() + " of " + graded, PlainLanguage.cell(String.join(", ", row.getValue()))));
         }
         return text.toString();
     }

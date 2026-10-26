@@ -10,6 +10,7 @@ import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
 import grading.assessment.QuestionFiles;
 import grading.config.GradingSettings;
+import grading.progress.ProgressTracker;
 import grading.submission.SubmissionPreparationService;
 import grading.submission.SubmissionValidationResult;
 import grading.tester.TesterFileValidationService;
@@ -20,6 +21,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -32,7 +34,10 @@ class JavaGradingServiceTest {
     @TempDir
     Path temporary;
 
-    private final JavaGradingService service = new JavaGradingService();
+    private static final GradingSettings SETTINGS = GradingSettings.current();
+
+    private final JavaGradingService service = grader(SETTINGS.compileTimeout(), SETTINGS.executionTimeout(),
+            System.out::println);
 
     @Test
     void gradesTheProvidedSampleAndKeepsOriginalsUnchanged() throws Exception {
@@ -123,11 +128,11 @@ class JavaGradingServiceTest {
                 """);
         Files.writeString(batch.resolve("alice/Q2/personstester.txt"), "1.5");
         Files.writeString(batch.resolve("bob/Q2/personstester.txt"), "2.5");
-        List<SubmissionValidationResult> submissions = new SubmissionPreparationService()
+        List<SubmissionValidationResult> submissions = new SubmissionPreparationService(SETTINGS)
                 .prepareBatch(batch, temporary.resolve("normalized"));
         assertTrue(submissions.stream().allMatch(SubmissionValidationResult::isReadyForGrading),
                 submissions.toString());
-        TesterValidationResult testers = new TesterFileValidationService().validate(testersFolder);
+        TesterValidationResult testers = new TesterFileValidationService(SETTINGS).validate(testersFolder);
 
         List<StudentGradingResult> results = service.gradeBatch(submissions, testers);
 
@@ -171,12 +176,14 @@ class JavaGradingServiceTest {
         for (int index = 0; index < usernames.size(); index++) {
             createSubmission(batch, usernames.get(index), index);
         }
-        List<SubmissionValidationResult> submissions = new SubmissionPreparationService()
+        List<SubmissionValidationResult> submissions = new SubmissionPreparationService(SETTINGS)
                 .prepareBatch(batch, temporary.resolve("normalized"));
-        TesterValidationResult testers = new TesterFileValidationService().validate(createTesters());
+        TesterValidationResult testers = new TesterFileValidationService(SETTINGS).validate(createTesters());
         java.util.ArrayList<String> logs = new java.util.ArrayList<>();
-        JavaGradingService parallel = new JavaGradingService(Duration.ofSeconds(30), Duration.ofSeconds(5), 3,
-                logs::add, new BoundedProcessRunner(GradingSettings.current().maxOutputBytes()));
+        GradingLimits threeAtATime = new GradingLimits(Duration.ofSeconds(30), Duration.ofSeconds(5),
+                SETTINGS.maxMemoryMegabytes(), 3);
+        JavaGradingService parallel = new JavaGradingService(threeAtATime,
+                logs::add, new BoundedProcessRunner(SETTINGS.maxOutputBytes()), new ProgressTracker());
 
         List<StudentGradingResult> results = parallel.gradeBatch(submissions, testers);
 
@@ -208,12 +215,13 @@ class JavaGradingServiceTest {
         // Bob's headers name someone else, so his identity must be confirmed before grading.
         Files.writeString(batch.resolve("bob/Q1/Q1a.java"), "/* Name: Eve\n * Email: eve@smu.edu.sg */\n"
                 + "public class Q1a { public static double score() { return 2.5; } }");
-        List<SubmissionValidationResult> submissions = new SubmissionPreparationService()
+        List<SubmissionValidationResult> submissions = new SubmissionPreparationService(SETTINGS)
                 .prepareBatch(batch, temporary.resolve("normalized"));
-        TesterValidationResult testers = new TesterFileValidationService().validate(createTesters());
+        TesterValidationResult testers = new TesterFileValidationService(SETTINGS).validate(createTesters());
         java.util.ArrayList<String> logs = new java.util.ArrayList<>();
 
-        List<StudentGradingResult> results = new JavaGradingService(logs::add).gradeBatch(submissions, testers);
+        List<StudentGradingResult> results = grader(SETTINGS.compileTimeout(), SETTINGS.executionTimeout(), logs::add)
+                .gradeBatch(submissions, testers);
 
         assertEquals(List.of("alice", "carol"), results.stream().map(StudentGradingResult::username).toList());
         QuestionGradingResult missing = results.getFirst().questions().getLast();
@@ -284,7 +292,7 @@ class JavaGradingServiceTest {
 
     @Test
     void terminatesInfiniteLoopsAndHangingShutdownHooks() throws Exception {
-        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofMillis(500));
+        JavaGradingService limited = grader(Duration.ofSeconds(10), Duration.ofMillis(500), System.out::println);
         QuestionGradingResult result = runTester("""
                 System.out.println(ProcessHandle.current().pid());
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> { while (true) {} }));
@@ -311,7 +319,7 @@ class JavaGradingServiceTest {
                     }
                 }
                 """);
-        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1));
+        JavaGradingService limited = grader(Duration.ofSeconds(10), Duration.ofSeconds(1), System.out::println);
         QuestionGradingResult result = limited.gradeQuestion(
                 new QuestionFiles(List.of(student), List.of(), List.of()), tester);
         assertEquals(QuestionGradingResult.Status.EXECUTION_TIMEOUT, result.status());
@@ -344,7 +352,7 @@ class JavaGradingServiceTest {
                 }
                 """);
         java.util.ArrayList<String> logs = new java.util.ArrayList<>();
-        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1), logs::add);
+        JavaGradingService limited = grader(Duration.ofSeconds(10), Duration.ofSeconds(1), logs::add);
 
         QuestionGradingResult result = limited.gradeQuestion(
                 new QuestionFiles(List.of(student), List.of(), List.of()), tester);
@@ -363,7 +371,7 @@ class JavaGradingServiceTest {
 
     @Test
     void timeoutCountsOnlyExactCompletedVerdictsAndIgnoresNumericOutput() throws Exception {
-        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1));
+        JavaGradingService limited = grader(Duration.ofSeconds(10), Duration.ofSeconds(1), System.out::println);
         QuestionGradingResult result = runTester("""
                 System.out.println("Passed");
                 System.out.println("Failed -> Exception");
@@ -380,7 +388,7 @@ class JavaGradingServiceTest {
 
     @Test
     void boundsCompilationTimeToo() throws Exception {
-        JavaGradingService limited = new JavaGradingService(Duration.ofNanos(1), Duration.ofSeconds(1));
+        JavaGradingService limited = grader(Duration.ofNanos(1), Duration.ofSeconds(1), System.out::println);
         QuestionGradingResult result = runTester("System.out.println(1);", limited);
         assertEquals(QuestionGradingResult.Status.COMPILATION_TIMEOUT, result.status(), result.message());
         assertNull(result.execution());
@@ -396,8 +404,8 @@ class JavaGradingServiceTest {
                 """, service);
         assertEquals(QuestionGradingResult.Status.OUTPUT_LIMIT_EXCEEDED, result.status(), result.message());
         assertEquals(0, result.score());
-        assertTrue(result.execution().stdout().length() <= GradingSettings.current().maxOutputBytes());
-        assertTrue(result.execution().stderr().length() <= GradingSettings.current().maxOutputBytes());
+        assertTrue(result.execution().stdout().length() <= SETTINGS.maxOutputBytes());
+        assertTrue(result.execution().stderr().length() <= SETTINGS.maxOutputBytes());
     }
 
     @Test
@@ -427,7 +435,7 @@ class JavaGradingServiceTest {
 
     @Test
     void terminatesSpawnedChildrenOnTimeout() throws Exception {
-        JavaGradingService limited = new JavaGradingService(Duration.ofSeconds(10), Duration.ofSeconds(1));
+        JavaGradingService limited = grader(Duration.ofSeconds(10), Duration.ofSeconds(1), System.out::println);
         QuestionGradingResult result = runTester("""
                 if (args.length > 0) { Thread.sleep(60000); return; }
                 String executable = java.nio.file.Path.of(System.getProperty("java.home"), "bin",
@@ -507,6 +515,14 @@ class JavaGradingServiceTest {
             Files.copy(source, destination);
         }
         return destination;
+    }
+
+    // A grader with the settings' limits except the given time limits.
+    private static JavaGradingService grader(Duration compile, Duration execution, Consumer<String> log) {
+        GradingLimits limits = new GradingLimits(compile, execution, SETTINGS.maxMemoryMegabytes(),
+                SETTINGS.parallelStudents());
+        return new JavaGradingService(limits, log,
+                new BoundedProcessRunner(SETTINGS.maxOutputBytes()), new ProgressTracker());
     }
 
     private Path write(String filename, String content) throws IOException {
