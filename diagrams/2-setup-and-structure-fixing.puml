@@ -1,0 +1,86 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam class {
+  BackgroundColor White
+  BorderColor #455A64
+  ArrowColor #455A64
+}
+title Setup and structure fixing
+caption Every submission is opened as a ZIP or a folder, checked by pluggable checks, and fixed in a copy; the original is never changed.
+
+package "grading.session" #E0F2F1 {
+  class GradingSession {
+    + importTesters(Path) : TesterValidationResult
+    + importSubmissions(Path) : List[SubmissionValidationResult]
+    + confirmIdentity(String, StudentIdentity) : void
+  }
+}
+
+package "grading.tester" #E3F2FD {
+  class TesterFileValidationService {
+    + validate(Path) : TesterValidationResult
+  }
+  class TesterValidationResult <<record>> {
+    + isValid() : boolean
+  }
+}
+
+package "grading.submission" #E3F2FD {
+  class SubmissionPreparationService {
+    + prepareBatch(Path, Path) : List[SubmissionValidationResult]
+  }
+  class UsernameResolver {
+    ~ resolve(Path, HeaderIdentity, List[SubmissionFinding]) : String
+  }
+  class StudentHeaders {
+    ~ discover(List[Path], List[SubmissionFinding]) : HeaderIdentity
+    ~ checkAndRepair(Path, String, HeaderIdentity, List[SubmissionFinding]) : List[String]
+  }
+  abstract class SubmissionSource {
+    {abstract} + open(Path, List[SubmissionFinding]) : Path
+  }
+  class ZipSubmission
+  class FolderSubmission
+  interface SubmissionCheck {
+    + inspect(SubmissionContext, List[SubmissionFinding]) : void
+  }
+  class UsernameFolderCheck
+  class QuestionFolderCheck
+  class ExtraJavaFilesCheck
+  class SubmissionValidationResult <<record>> {
+    + isReadyForGrading() : boolean
+  }
+  class SubmissionFinding <<record>> {
+    - severity : FindingSeverity
+    - code : String
+    - corrected : boolean
+  }
+  class SubmissionCorrectionService {
+    + applyIdentity(SubmissionValidationResult, StudentIdentity, Path) : SubmissionValidationResult
+  }
+}
+
+' Stack the classes of each package vertically.
+TesterFileValidationService -[hidden]down- TesterValidationResult
+SubmissionPreparationService -[hidden]down- UsernameResolver
+UsernameResolver -[hidden]down- StudentHeaders
+StudentHeaders -[hidden]down- SubmissionCorrectionService
+SubmissionValidationResult -[hidden]down- SubmissionFinding
+
+SubmissionSource <|-- ZipSubmission
+SubmissionSource <|-- FolderSubmission
+SubmissionCheck <|.. UsernameFolderCheck
+SubmissionCheck <|.. QuestionFolderCheck
+SubmissionCheck <|.. ExtraJavaFilesCheck
+
+GradingSession --> TesterFileValidationService
+GradingSession --> SubmissionPreparationService
+SubmissionPreparationService ..> SubmissionSource : opens
+SubmissionPreparationService --> "*" SubmissionCheck : runs
+SubmissionPreparationService ..> SubmissionValidationResult : creates
+SubmissionValidationResult --> "*" SubmissionFinding
+@enduml

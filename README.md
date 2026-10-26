@@ -49,15 +49,15 @@ address yourself. If port 8080 is busy, the application picks a free port and pr
 
 ## Test submissions
 
-`test-submissions/` holds extra submissions that show cases the provided samples do not. Copy them
-into the folder of student ZIPs before step 2.
+`test-submissions/` holds extra submissions, one folder each, that show cases the provided samples
+do not. Copy these folders into the folder of student ZIPs before step 2.
 
 | Submission | What it shows |
 |---|---|
-| `RenameToYourUsername.zip` | The resource folder submitted without renaming it or filling in the headers. The student is skipped until you confirm who it is. |
-| `missing.files.2025.zip` | No `Q3` folder and no `Q2b.java`. Only those questions score 0; the rest are graded. |
-| `loop.q1b.2025.zip` | Q1b loops forever on test case 2 only. That test is skipped after the time limit; tests 1 and 3 still earn marks. |
-| `copied.answer.2025.zip` | ping.lee.2023's Q1a and Q2a with the variables renamed. Flagged as possible plagiarism. |
+| `RenameToYourUsername` | The resource folder submitted without renaming it or filling in the headers. The student is skipped until you confirm who it is. |
+| `missing.files.2025` | No `Q3` folder and no `Q2b.java`. Only those questions score 0; the rest are graded. |
+| `loop.q1b.2025` | Q1b loops forever on test case 2 only. That test is skipped after the time limit; tests 1 and 3 still earn marks. |
+| `copied.answer.2025` | ping.lee.2023's Q1a and Q2a with the variables renamed. Flagged as possible plagiarism. |
 
 ## Reports
 

@@ -1,0 +1,90 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam class {
+  BackgroundColor White
+  BorderColor #455A64
+  ArrowColor #455A64
+}
+title Extra features: reports, style score, plagiarism detection, feedback
+caption After grading, one GradingAttempt gathers every student's results; the report writer turns it into PDFs.
+
+package "grading.session" #E0F2F1 {
+  class GradingSession
+}
+
+package "grading.reporting" #E8F5E9 {
+  class GradingAttempt <<record>> {
+    - students : List[StudentOutcome]
+  }
+  class StudentOutcome <<record>> {
+    + reviewReasons() : List[String]
+  }
+  class AttemptReportWriter {
+    + write(attempt) : Written
+  }
+  class StudentReportFormatter
+  class AttemptSummaryFormatter
+  class PdfReportRenderer
+}
+
+package "grading.style" #FCE4EC {
+  class StyleChecker {
+    + check(submission) : StudentStyleResult
+  }
+  class StyleRules
+  class StudentStyleResult <<record>>
+}
+
+package "grading.similarity" #EDE7F6 {
+  class SimilarityChecker {
+    + check(submissions) : SimilarityReport
+  }
+  interface SimilarityAlgorithm {
+    + compare(first, second) : Comparison
+  }
+  class WinnowingSimilarity
+  class GreedyStringTiling
+}
+
+package "grading.feedback" #FFEBEE {
+  class FeedbackGenerator {
+    + forStudent(submission, grading) : List[Feedback]
+  }
+  interface FeedbackRule {
+    + apply(context) : List[Feedback]
+  }
+  class CompilationErrorRule
+  class TimeoutRule
+  class WrongOutputRule
+}
+
+' Stack the classes of each package vertically.
+GradingAttempt -[hidden]down- StudentOutcome
+StudentReportFormatter -[hidden]down- AttemptSummaryFormatter
+AttemptSummaryFormatter -[hidden]down- PdfReportRenderer
+StyleChecker -[hidden]down- StyleRules
+StyleRules -[hidden]down- StudentStyleResult
+
+SimilarityAlgorithm <|.. WinnowingSimilarity
+SimilarityAlgorithm <|.. GreedyStringTiling
+FeedbackRule <|.. CompilationErrorRule
+FeedbackRule <|.. TimeoutRule
+FeedbackRule <|.. WrongOutputRule
+
+GradingSession ..> GradingAttempt : assembles
+GradingSession ..> AttemptReportWriter : writes reports
+GradingAttempt --> "*" StudentOutcome
+GradingAttempt ..> StyleChecker
+GradingAttempt ..> SimilarityChecker
+GradingAttempt ..> FeedbackGenerator
+AttemptReportWriter ..> StudentReportFormatter
+AttemptReportWriter ..> AttemptSummaryFormatter
+AttemptReportWriter ..> PdfReportRenderer
+StyleChecker --> StyleRules
+SimilarityChecker --> "2" SimilarityAlgorithm
+FeedbackGenerator --> "*" FeedbackRule
+@enduml

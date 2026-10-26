@@ -1,0 +1,584 @@
+@startuml
+title CS102 Auto Grading System - all classes (appendix)
+
+set namespaceSeparator none
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam linetype polyline
+skinparam nodesep 40
+skinparam ranksep 60
+
+' ===================================================================
+' View and controller: the web page talks to the server over HTTP.
+' ===================================================================
+package "web (view / controller)" {
+  class WebApplication {
+    + start(port : int) : int
+    {static} + main(args : String[]) : void
+  }
+  class UploadedFolder {
+    {static} ~ extract(zipBytes : byte[], destination : Path, settings : GradingSettings) : Optional[Path]
+  }
+  class UploadedScoreSheet <<record>> {
+    {static} ~ load(body : byte[], name : String, folder : Path) : UploadedScoreSheet
+    ~ previewJson(updater : ScoreSheetUpdater, scores : ScoreSummary, graded : boolean) : String
+  }
+  class ProgressJson {
+    {static} ~ of(snapshot : ProgressSnapshot, testersReady : boolean, submissionsReady : boolean, reportsReady : boolean, scoreSheetName : String) : String
+  }
+}
+
+' ===================================================================
+' Orchestration: what is loaded, and one grading run at a time.
+' ===================================================================
+package "grading.session (orchestration)" {
+  class GradingSession {
+    + importSubmissions(input : Path) : List[SubmissionValidationResult]
+    + startGrading() : void
+  }
+  class SessionRefusal {
+    + SessionRefusal(reason : Reason, message : String)
+    + reason() : Reason
+  }
+  enum Reason {
+    INVALID
+    NOT_FOUND
+    BUSY
+  }
+}
+
+' ===================================================================
+' Externalized configuration: grading.properties and assessment.properties.
+' ===================================================================
+package "grading.config (externalized settings)" {
+  class ConfigFile {
+    {static} + load(name : String) : ConfigFile
+    + text(key : String) : String
+  }
+  class GradingSettings <<record>> {
+    {static} + current() : GradingSettings
+  }
+  class StyleSettings <<record>>
+  class PenaltySettings <<record>> {
+    + none() : boolean
+  }
+  class SimilaritySettings <<record>>
+}
+
+package "grading.assessment (the exam being graded)" {
+  class AssessmentDefinition {
+    {static} + sourceFiles() : Map[String, String]
+    {static} + testerFiles() : List[String]
+  }
+  class Question <<record>> {
+    + testerFilename() : String
+  }
+  class QuestionFiles <<record>> {
+    + missingFiles(question : Question) : List[String]
+    + requireReadable() : void
+  }
+}
+
+' ===================================================================
+' Submission validation, naming checks and automatic correction.
+' ===================================================================
+package "grading.submission (validation, naming, correction)" {
+  class SubmissionPreparationService {
+    + prepareBatch(input : Path, workspace : Path) : List[SubmissionValidationResult]
+  }
+  abstract class SubmissionSource {
+    + path() : Path
+    {abstract} + open(staging : Path, findings : List[SubmissionFinding]) : Path
+  }
+  class ZipSubmission {
+    + open(staging : Path, findings : List[SubmissionFinding]) : Path
+  }
+  class FolderSubmission {
+    + open(staging : Path, findings : List[SubmissionFinding]) : Path
+  }
+  interface SubmissionCheck {
+    + inspect(submission : SubmissionContext, findings : List[SubmissionFinding]) : void
+  }
+  class UsernameFolderCheck
+  class QuestionFolderCheck
+  class ExtraJavaFilesCheck
+  class SubmissionContext <<record>>
+  class SubmissionDiscovery {
+    ~ discover(input : Path, workspace : Path) : List[Path]
+  }
+  class UsernameResolver {
+    ~ candidate(submission : Path) : Optional[String]
+    ~ resolve(submission : Path, identity : HeaderIdentity, findings : List[SubmissionFinding]) : String
+  }
+  class StudentHeaders {
+    ~ discover(javaFiles : List[Path], findings : List[SubmissionFinding]) : HeaderIdentity
+    ~ checkAndRepair(javaFile : Path, username : String, identity : HeaderIdentity, findings : List[SubmissionFinding]) : List[String]
+  }
+  class IdentitySuggestions {
+    + displayName(username : String) : String
+    + email(username : String) : Optional[String]
+  }
+  class ZipExtractor {
+    ~ extract(zipFile : Path, destination : Path, findings : List[SubmissionFinding]) : void
+  }
+  class SubmissionValidationResult <<record>> {
+    + hasErrors() : boolean
+    + isReadyForGrading() : boolean
+  }
+  class SubmissionFinding <<record>> {
+    {static} + error(code : String, message : String) : SubmissionFinding
+    {static} + warning(code : String, message : String) : SubmissionFinding
+  }
+  enum FindingSeverity {
+    INFO
+    WARNING
+    ERROR
+  }
+  class HeaderIdentity <<record>>
+  class FileCorrection <<record>>
+  class SubmissionCorrectionService {
+    + applyIdentity(existing : SubmissionValidationResult, identity : StudentIdentity, workspace : Path) : SubmissionValidationResult
+  }
+  class StudentIdentity <<record>>
+  class InvalidIdentityException {
+    + field() : String
+  }
+}
+
+package "grading.tester (tester validation)" {
+  class TesterFileValidationService {
+    + validate(folder : Path) : TesterValidationResult
+  }
+  class TesterValidationResult <<record>> {
+    + hasErrors() : boolean
+    + isValid() : boolean
+  }
+}
+
+' ===================================================================
+' Test harness: compile, run with limits, recover from infinite loops.
+' ===================================================================
+package "grading.execution (test harness)" {
+  class JavaGradingService {
+    + gradeBatch(submissions : List[SubmissionValidationResult], testers : TesterValidationResult) : List[StudentGradingResult]
+  }
+  class BatchGrader {
+    ~ grade(submissions : List[SubmissionValidationResult], grader : StudentGrader) : List[StudentGradingResult]
+  }
+  class GradingLimits <<record>> {
+    {static} ~ of(settings : GradingSettings) : GradingLimits
+    ~ maxHeapOption() : String
+  }
+  class TesterCompiler {
+    ~ compile(files : QuestionFiles, testerFile : Path) : CompilationResult
+  }
+  class TesterRunner {
+    ~ run(compilation : CompilationResult) : QuestionGradingResult
+  }
+  class TimeoutRecovery {
+    ~ recover(files : QuestionFiles, testerFile : Path, timedOut : QuestionGradingResult) : QuestionGradingResult
+  }
+  class TesterTestCases {
+    {static} ~ parse(source : String) : Optional[TesterTestCases]
+    ~ unfinishedCase(stdout : String, skipped : Set[Integer]) : OptionalInt
+  }
+  interface ProcessRunner {
+    + run(command : List[String], directory : Path, timeout : Duration) : ProcessResult
+  }
+  class BoundedProcessRunner {
+    + run(command : List[String], directory : Path, timeout : Duration) : ProcessResult
+  }
+  class ProcessResult <<record>> {
+    + succeeded() : boolean
+  }
+  class CompilationResult <<record>> {
+    + classesDirectory() : Path
+    + close() : void
+  }
+  class TesterOutput <<record>> {
+    {static} ~ parse(stdout : String) : TesterOutput
+  }
+  class QuestionGradingResult <<record>>
+  class StudentGradingResult <<record>> {
+    + totalScore() : double
+    + questionScores() : Map[String, Double]
+  }
+  class TestCaseResult <<record>> {
+    {static} + parse(stdout : String, timedOut : boolean) : List[TestCaseResult]
+  }
+}
+
+package "grading.scoring (marks)" {
+  class ScoreBreakdown <<record>> {
+    {static} + of(result : StudentGradingResult, style : StudentStyleResult, penalties : PenaltySettings) : ScoreBreakdown
+    + toStudentScore() : StudentScore
+  }
+  class StudentScore <<record>>
+  class ScoreSummary <<record>> {
+    + find(username : String) : Optional[StudentScore]
+  }
+}
+
+package "grading.progress (live status model)" {
+  class ProgressTracker {
+    + prepare(submissions : List[SubmissionValidationResult]) : void
+    + studentStarted(username : String) : void
+  }
+  class ProgressSnapshot <<record>> {
+    + total() : int
+  }
+  class StudentProgress <<record>> {
+    + total() : double
+  }
+}
+
+' ===================================================================
+' Reports: per-student PDF, attempt summary, and the CSV score sheet.
+' ===================================================================
+package "grading.reporting (reports and CSV export)" {
+  class GradingAttempt <<record>> {
+    {static} + assemble(startedAt : LocalDateTime, testerFolder : Path, submissionsFolder : Path, settings : GradingSettings, submissions : List[SubmissionValidationResult], results : List[StudentGradingResult], styleChecker : StyleChecker) : GradingAttempt
+    + scores() : List[ScoreBreakdown]
+  }
+  class StudentOutcome <<record>> {
+    + reviewReasons() : List[String]
+  }
+  class AttemptReportWriter {
+    + write(attempt : GradingAttempt) : Written
+  }
+  class StudentReportFormatter {
+    {static} + format(student : StudentOutcome, attempt : GradingAttempt, attemptId : String) : String
+  }
+  class AttemptSummaryFormatter {
+    {static} + format(attempt : GradingAttempt, attemptId : String, reportFiles : Map[StudentOutcome, String], problems : List[String]) : String
+  }
+  class PlainLanguage {
+    {static} ~ section(report : StringBuilder, title : String, content : Supplier[String]) : void
+    {static} ~ row(cells : Object[]) : String
+  }
+  class PdfReportRenderer {
+    ~ render(markdown : String, pdf : Path, footer : String) : void
+  }
+  class PdfText {
+    ~ runs(text : String, base : PDFont) : List[Run]
+    ~ wrap(runs : List[Run], width : float, size : float) : List[List[Run]]
+  }
+  class PdfPages {
+    ~ drawLine(line : List[Run], x : float, size : float) : void
+    ~ ensureSpace(height : float) : void
+  }
+  class PdfTable {
+    {static} ~ parse(lines : List[String], text : PdfText) : Optional[PdfTable]
+    ~ draw(pages : PdfPages) : void
+  }
+  class ReportArchive {
+    {static} + save(attemptFolder : Path, zipFile : Path) : void
+  }
+  class ScoreSheet {
+    {static} + load(path : Path) : ScoreSheet
+    + rowCount() : int
+  }
+  class ScoreSheetUpdater {
+    + preview(sheet : ScoreSheet, scores : ScoreSummary) : ScoreSheetPreview
+    + filledContent(preview : ScoreSheetPreview) : byte[]
+  }
+  class ScoreSheetPreview <<record>>
+  class ScoreSheetException
+}
+
+' ===================================================================
+' Extra features: style scoring, plagiarism detection, feedback.
+' ===================================================================
+package "grading.style (CS102 style guide)" {
+  class StyleChecker {
+    + check(submission : SubmissionValidationResult) : StudentStyleResult
+  }
+  class StyleRules {
+    {static} + load(file : Path) : StyleRules
+    + rule(checkId : String) : Rule
+  }
+  class Rule <<record>>
+  class Templates {
+    + keptLines(fileName : String, studentLines : List[String]) : Set[Integer]
+  }
+  class StudentStyleResult <<record>> {
+    + countedViolations() : int
+  }
+  class FileStyleResult <<record>>
+  class StyleViolation <<record>>
+  class InfiniteLoopExitCheck
+  class InitializeAtDeclarationCheck
+  class LoopEdgeConditionalCheck
+}
+
+package "grading.similarity (plagiarism detection)" {
+  class SimilarityChecker {
+    + check(submissions : List[SubmissionValidationResult]) : SimilarityReport
+  }
+  interface SimilarityAlgorithm {
+    + name() : String
+    + compare(first : List[Token], second : List[Token]) : Comparison
+  }
+  class WinnowingSimilarity {
+    + compare(first : List[Token], second : List[Token]) : Comparison
+  }
+  class GreedyStringTiling {
+    + compare(first : List[Token], second : List[Token]) : Comparison
+  }
+  class JavaTokenizer {
+    {static} ~ tokenize(file : String, lines : List[String], skippedLines : Set[Integer]) : List[Token]
+  }
+  class Token <<record>>
+  class Comparison <<record>>
+  class SimilarityReport <<record>> {
+    + flaggedFor(username : String) : List[SimilarityPair]
+  }
+  class SimilarityPair <<record>> {
+    + percent() : long
+  }
+}
+
+package "grading.feedback (explaining mistakes)" {
+  class FeedbackGenerator {
+    + forStudent(submission : SubmissionValidationResult, grading : StudentGradingResult) : List[Feedback]
+  }
+  interface FeedbackRule {
+    + apply(context : FeedbackContext) : List[Feedback]
+  }
+  class FeedbackContext {
+    ~ unexplainedFailures() : List[TestCaseResult]
+  }
+  class Feedback <<record>>
+  class CompilationErrorRule
+  class StarterCodeRule
+  class MissingExceptionRule
+  class RuntimeExceptionRule
+  class TimeoutRule
+  class OutputLimitRule
+  class WrongOutputRule
+}
+
+package "External libraries (JDK, Checkstyle)" {
+  class RuntimeException <<JDK>>
+  class IllegalArgumentException <<JDK>>
+  class IOException <<JDK>>
+  abstract class AbstractCheck <<Checkstyle>>
+}
+
+' ===================================================================
+' Inheritance
+' ===================================================================
+SubmissionSource <|-- ZipSubmission
+SubmissionSource <|-- FolderSubmission
+RuntimeException <|-- SessionRefusal
+IllegalArgumentException <|-- InvalidIdentityException
+IOException <|-- ScoreSheetException
+AbstractCheck <|-- InfiniteLoopExitCheck
+AbstractCheck <|-- InitializeAtDeclarationCheck
+AbstractCheck <|-- LoopEdgeConditionalCheck
+
+' ===================================================================
+' Interface implementation
+' ===================================================================
+SubmissionCheck <|.. UsernameFolderCheck
+SubmissionCheck <|.. QuestionFolderCheck
+SubmissionCheck <|.. ExtraJavaFilesCheck
+ProcessRunner <|.. BoundedProcessRunner
+SimilarityAlgorithm <|.. WinnowingSimilarity
+SimilarityAlgorithm <|.. GreedyStringTiling
+FeedbackRule <|.. CompilationErrorRule
+FeedbackRule <|.. StarterCodeRule
+FeedbackRule <|.. MissingExceptionRule
+FeedbackRule <|.. RuntimeExceptionRule
+FeedbackRule <|.. TimeoutRule
+FeedbackRule <|.. OutputLimitRule
+FeedbackRule <|.. WrongOutputRule
+
+' ===================================================================
+' Nested types
+' ===================================================================
+SessionRefusal +-- Reason
+AssessmentDefinition +-- Question
+StyleRules +-- Rule
+
+' ===================================================================
+' Associations (a class keeps a reference)
+' ===================================================================
+WebApplication --> GradingSettings
+WebApplication --> GradingSession
+WebApplication --> ProgressTracker
+WebApplication --> ScoreSheetUpdater
+WebApplication --> "0..1" UploadedScoreSheet
+UploadedScoreSheet --> ScoreSheet
+
+GradingSession --> GradingSettings
+GradingSession --> ProgressTracker
+GradingSession --> TesterFileValidationService
+GradingSession --> SubmissionPreparationService
+GradingSession --> SubmissionCorrectionService
+GradingSession --> "0..1" TesterValidationResult : testers
+GradingSession --> "*" SubmissionValidationResult : submissions
+GradingSession --> "0..1" GradingAttempt : latestAttempt
+SessionRefusal --> Reason
+
+GradingSettings --> StyleSettings
+GradingSettings --> PenaltySettings
+GradingSettings --> SimilaritySettings
+AssessmentDefinition --> "*" Question : QUESTIONS
+
+SubmissionPreparationService --> ZipExtractor
+SubmissionPreparationService --> StudentHeaders
+SubmissionPreparationService --> UsernameResolver
+SubmissionPreparationService --> SubmissionDiscovery
+SubmissionPreparationService --> "*" SubmissionCheck : checks
+ZipSubmission --> ZipExtractor
+SubmissionContext --> SubmissionSource
+StudentHeaders --> IdentitySuggestions
+SubmissionCorrectionService --> SubmissionPreparationService
+SubmissionValidationResult --> "*" QuestionFiles
+SubmissionValidationResult --> "*" SubmissionFinding
+SubmissionValidationResult --> HeaderIdentity : author
+SubmissionValidationResult --> "*" FileCorrection
+SubmissionFinding --> FindingSeverity
+TesterValidationResult --> "*" SubmissionFinding
+
+JavaGradingService --> GradingLimits
+JavaGradingService --> ProcessRunner
+JavaGradingService --> TesterCompiler
+JavaGradingService --> TesterRunner
+JavaGradingService --> TimeoutRecovery
+JavaGradingService --> ProgressTracker
+TesterCompiler --> GradingLimits
+TesterCompiler --> ProcessRunner
+TesterRunner --> GradingLimits
+TesterRunner --> ProcessRunner
+CompilationResult --> ProcessResult
+QuestionGradingResult --> ProcessResult
+StudentGradingResult --> "*" QuestionGradingResult
+
+ScoreSummary --> "*" StudentScore
+ProgressSnapshot --> "*" StudentProgress
+
+GradingAttempt --> GradingSettings
+GradingAttempt --> "*" StudentOutcome
+GradingAttempt --> SimilarityReport
+StudentOutcome --> SubmissionValidationResult
+StudentOutcome --> StudentGradingResult
+StudentOutcome --> StudentStyleResult
+StudentOutcome --> ScoreBreakdown
+StudentOutcome --> "*" Feedback
+StudentOutcome --> "*" SimilarityPair
+AttemptReportWriter ..> PdfReportRenderer
+PdfReportRenderer --> PdfText
+PdfReportRenderer --> PdfPages
+ScoreSheetPreview --> ScoreSheet
+
+StyleChecker --> StyleSettings
+StyleChecker --> StyleRules
+StyleChecker --> Templates
+StyleRules --> "*" Rule
+StudentStyleResult --> "*" FileStyleResult
+FileStyleResult --> "*" StyleViolation
+StyleViolation --> Rule
+
+SimilarityChecker --> SimilaritySettings
+SimilarityChecker --> Templates
+SimilarityChecker --> "2" SimilarityAlgorithm : screening, scoring
+SimilarityReport --> "*" SimilarityPair
+
+FeedbackGenerator --> Templates
+FeedbackGenerator --> "*" FeedbackRule : rules
+FeedbackContext --> QuestionGradingResult
+FeedbackContext --> "*" TestCaseResult
+
+' ===================================================================
+' Dependencies (a class uses or creates another)
+' ===================================================================
+WebApplication ..> UploadedFolder : extracts uploads
+WebApplication ..> ProgressJson : builds progress JSON
+WebApplication ..> ReportArchive : zips reports
+WebApplication ..> SessionRefusal : maps to HTTP status
+ProgressJson ..> ProgressSnapshot
+
+GradingSession ..> JavaGradingService : creates per run
+GradingSession ..> StyleChecker : creates per run
+GradingSession ..> AttemptReportWriter : writes reports
+GradingSession ..> SessionRefusal : throws
+
+ConfigFile <.. GradingSettings : loads
+ConfigFile <.. AssessmentDefinition : loads
+QuestionFiles ..> Question
+
+SubmissionPreparationService ..> SubmissionSource : opens
+SubmissionPreparationService ..> SubmissionValidationResult : creates
+SubmissionCheck ..> SubmissionContext
+UsernameResolver ..> HeaderIdentity
+StudentHeaders ..> HeaderIdentity
+SubmissionCorrectionService ..> StudentIdentity
+StudentIdentity ..> InvalidIdentityException : throws
+TesterFileValidationService ..> TesterValidationResult : creates
+
+JavaGradingService ..> BatchGrader : grades students in parallel
+JavaGradingService ..> StudentGradingResult : creates
+TesterCompiler ..> CompilationResult : creates
+TesterRunner ..> TesterOutput : parses stdout
+TesterRunner ..> QuestionGradingResult : creates
+TimeoutRecovery ..> TesterTestCases : skips the hung test case
+BoundedProcessRunner ..> ProcessResult : creates
+GradingLimits ..> GradingSettings
+
+ScoreBreakdown ..> StudentGradingResult
+ScoreBreakdown ..> StudentStyleResult
+ScoreBreakdown ..> PenaltySettings
+ScoreBreakdown ..> StudentScore : creates
+ProgressTracker ..> ProgressSnapshot : creates
+
+GradingAttempt ..> StyleChecker
+GradingAttempt ..> FeedbackGenerator
+GradingAttempt ..> SimilarityChecker
+GradingAttempt ..> ScoreBreakdown : creates
+AttemptReportWriter ..> StudentReportFormatter
+AttemptReportWriter ..> AttemptSummaryFormatter
+StudentReportFormatter ..> PlainLanguage
+AttemptSummaryFormatter ..> PlainLanguage
+PdfReportRenderer ..> PdfTable
+PdfTable ..> PdfPages
+ScoreSheetUpdater ..> ScoreSheetPreview : creates
+ScoreSheetUpdater ..> ScoreSummary
+ScoreSheet ..> ScoreSheetException : throws
+
+StyleChecker ..> StudentStyleResult : creates
+SimilarityChecker ..> JavaTokenizer
+SimilarityChecker ..> SimilarityReport : creates
+JavaTokenizer ..> Token
+SimilarityAlgorithm ..> Comparison
+FeedbackGenerator ..> FeedbackContext : creates
+FeedbackRule ..> FeedbackContext
+FeedbackRule ..> Feedback
+
+note right of TimeoutRecovery
+  Infinite-loop protection: BoundedProcessRunner kills a run
+  that passes its time limit; TimeoutRecovery re-runs the
+  tester without the test case that hung, so the remaining
+  test cases are still graded.
+end note
+
+note bottom of InfiniteLoopExitCheck
+  Custom Checkstyle checks, loaded by name
+  from config/checkstyle.xml.
+end note
+
+legend right
+  Notation
+  Visibility: plus = public, minus = private, hash = protected, tilde = package-private
+  record stereotype: Java record (immutable data)
+  Solid line, hollow triangle: inheritance
+  Dashed line, hollow triangle: interface implementation
+  Solid arrow: association (keeps a reference)
+  Dashed arrow: dependency (uses or creates)
+  Circled plus: nested type
+endlegend
+
+@enduml

@@ -1,0 +1,104 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam class {
+  BackgroundColor White
+  BorderColor #455A64
+  ArrowColor #455A64
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #BDBDBD
+}
+title Execution, timeouts and scoring
+caption Each question is compiled and run in its own time-limited JVM; a test case that never finishes is skipped and the tester is run again.
+
+package "grading.session" #E0F2F1 {
+  class GradingSession {
+    + startGrading() : void
+    + cancelGrading() : void
+  }
+}
+
+package "grading.execution" #FFF3E0 {
+  class JavaGradingService {
+    + gradeBatch(submissions, testers) : List[StudentGradingResult]
+  }
+  class BatchGrader
+  class TesterCompiler {
+    ~ compile(QuestionFiles, Path) : CompilationResult
+  }
+  class TesterRunner {
+    ~ run(CompilationResult) : QuestionGradingResult
+  }
+  class TimeoutRecovery {
+    ~ recover(files, tester, timedOut) : QuestionGradingResult
+  }
+  class TesterTestCases {
+    ~ unfinishedCase(stdout, skipped) : OptionalInt
+  }
+  interface ProcessRunner {
+    + run(List[String], Path, Duration) : ProcessResult
+  }
+  class BoundedProcessRunner
+  class StudentGradingResult <<record>> {
+    + totalScore() : double
+  }
+  class QuestionGradingResult <<record>> {
+    - status : Status
+    - score : double
+  }
+}
+
+package "grading.scoring" #FFFDE7 {
+  class ScoreBreakdown <<record>> {
+    - finalMark : double
+    + toStudentScore() : StudentScore
+  }
+  class StudentScore <<record>>
+  class ScoreSummary <<record>> {
+    + find(String) : Optional[StudentScore]
+  }
+}
+
+package "grading.reporting (CSV export)" #E8F5E9 {
+  class ScoreSheetUpdater {
+    + preview(sheet, scores) : ScoreSheetPreview
+    + filledContent(ScoreSheetPreview) : byte[]
+  }
+  class ScoreSheet {
+    {static} + load(Path) : ScoreSheet
+  }
+}
+
+' Stack the classes of each package vertically.
+StudentGradingResult -[hidden]down- QuestionGradingResult
+TimeoutRecovery -[hidden]down- TesterTestCases
+ScoreBreakdown -[hidden]down- StudentScore
+StudentScore -[hidden]down- ScoreSummary
+ScoreSheetUpdater -[hidden]down- ScoreSheet
+QuestionGradingResult -[hidden]down- ScoreBreakdown
+
+ProcessRunner <|.. BoundedProcessRunner
+
+GradingSession ..> JavaGradingService : creates
+JavaGradingService ..> BatchGrader
+JavaGradingService --> TesterCompiler
+JavaGradingService --> TesterRunner
+JavaGradingService --> TimeoutRecovery
+TesterCompiler --> ProcessRunner
+TesterRunner --> ProcessRunner
+TimeoutRecovery ..> TesterTestCases
+StudentGradingResult --> "*" QuestionGradingResult
+ScoreBreakdown ..> StudentGradingResult
+ScoreSummary --> "*" StudentScore
+ScoreSheetUpdater ..> ScoreSummary
+
+note bottom of BoundedProcessRunner
+  Kills the whole process tree at the
+  time or output limit (infinite loops).
+end note
+@enduml

@@ -1,6 +1,8 @@
 # Java and Maven
 target/
 *.class
+# The test submissions need the support classes students are given.
+!test-submissions/**/*.class
 hs_err_pid*
 replay_pid*
 pom.xml.tag

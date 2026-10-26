@@ -1,0 +1,63 @@
+@startuml
+hide empty members
+hide circle
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam class {
+  BorderColor #455A64
+  ArrowColor #455A64
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #BDBDBD
+}
+title Architecture overview
+caption Each package has one job. The web page only talks to the session; the grading model never depends on the web layer.
+
+class web <<package>> #E8EAF6
+class session <<package>> #E0F2F1
+class progress <<package>> #F3E5F5
+class submission <<package>> #E3F2FD
+class tester <<package>> #E3F2FD
+class execution <<package>> #FFF3E0
+class scoring <<package>> #FFFDE7
+class reporting <<package>> #E8F5E9
+class style <<package>> #FCE4EC
+class similarity <<package>> #EDE7F6
+class feedback <<package>> #FFEBEE
+
+web ..> session
+web ..> progress
+
+session ..> tester
+session ..> submission
+session ..> execution
+session ..> reporting
+
+execution ..> progress
+
+reporting ..> scoring
+reporting ..> style
+reporting ..> similarity
+reporting ..> feedback
+
+note as Roles
+  <b>What each package does</b> (all except web are in the grading package)
+  web: the page and its HTTP routes (view and controller)
+  session: one grading run at a time
+  progress: live status shown on the page
+  submission: validate and fix submissions
+  tester: validate the tester folder
+  execution: compile and run with time limits
+  scoring: per-question and per-student marks
+  reporting: PDF reports and the CSV score sheet
+  style: CS102 style score
+  similarity: plagiarism detection
+  feedback: explains each mistake
+
+  Arrows show the main dependencies only. Every package
+  also reads grading.config (settings) and
+  grading.assessment (the exam layout).
+end note
+@enduml

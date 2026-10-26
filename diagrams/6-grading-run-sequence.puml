@@ -1,0 +1,61 @@
+@startuml
+skinparam shadowing false
+skinparam defaultFontName Arial
+title What happens when the marker clicks Run grading
+autonumber
+skinparam sequenceMessageAlign center
+
+actor Marker
+participant "Web page" as Page
+participant WebApplication
+participant GradingSession
+participant JavaGradingService
+participant TesterCompiler
+participant TesterRunner
+participant TimeoutRecovery
+participant ProgressTracker
+participant GradingAttempt
+participant AttemptReportWriter
+
+Marker -> Page : clicks Run grading
+Page -> WebApplication : POST /api/grade
+WebApplication -> GradingSession : startGrading()
+GradingSession ->> GradingSession : runGrading() on its own thread
+WebApplication --> Page : 202 Accepted
+
+group grading thread
+  GradingSession -> JavaGradingService : gradeBatch(submissions, testers)
+  loop each student (several at once)
+    JavaGradingService -> ProgressTracker : studentStarted(username)
+    loop each question
+      JavaGradingService -> TesterCompiler : compile(files, testerFile)
+      TesterCompiler --> JavaGradingService : CompilationResult
+      JavaGradingService -> TesterRunner : run(compilation)
+      TesterRunner --> JavaGradingService : QuestionGradingResult
+      opt the tester ran past the time limit
+        JavaGradingService -> TimeoutRecovery : recover(files, testerFile, timedOut)
+        TimeoutRecovery --> JavaGradingService : result without the hung test case
+      end
+      JavaGradingService -> ProgressTracker : questionFinished(username, questionId, score)
+    end
+    JavaGradingService -> ProgressTracker : studentFinished(username, needsReview)
+  end
+  JavaGradingService --> GradingSession : List[StudentGradingResult]
+  GradingSession -> GradingAttempt : assemble(submissions, results, styleChecker)
+  note right of GradingAttempt
+    style check, plagiarism check,
+    feedback and score breakdown
+    for every student
+  end note
+  GradingAttempt --> GradingSession : GradingAttempt
+  GradingSession -> AttemptReportWriter : write(attempt)
+  AttemptReportWriter --> GradingSession : summary.pdf and students/*.pdf
+  GradingSession -> ProgressTracker : finish()
+end
+
+loop every second until grading finishes
+  Page -> WebApplication : GET /api/progress
+  WebApplication -> ProgressTracker : snapshot()
+  WebApplication --> Page : progress JSON
+end
+@enduml
