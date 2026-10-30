@@ -5,7 +5,7 @@
 }
 
 .workspace {
-    -fx-padding: 28 32;
+    -fx-padding: 20 24;
 }
 
 .label {
@@ -266,8 +266,7 @@
     -fx-font-weight: bold;
 }
 
-.status-graded,
-.status-auto-fixed {
+.status-graded {
     -fx-text-fill: #23744a;
 }
 

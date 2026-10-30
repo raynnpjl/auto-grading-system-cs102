@@ -97,32 +97,34 @@ final class JavaTokenizer {
         Lexeme next() {
             int start = position;
             int startLine = line;
-            char character = text.charAt(position);
-            Type type;
+            Type type = scan(text.charAt(position), start);
+            position = Math.min(position, text.length());
+            Lexeme lexeme = new Lexeme(type, text.substring(start, position), startLine);
+            skipSpaceAndComments();
+            return lexeme;
+        }
+
+        // Moves past one token starting at start and says what kind it was.
+        private Type scan(char character, int start) {
             if (Character.isJavaIdentifierStart(character)) {
                 while (position < text.length() && Character.isJavaIdentifierPart(text.charAt(position))) {
                     position++;
                 }
-                type = Type.WORD;
+                return Type.WORD;
             } else if (Character.isDigit(character) || (character == '.' && position + 1 < text.length()
                     && Character.isDigit(text.charAt(position + 1)))) {
                 while (position < text.length() && (Character.isLetterOrDigit(text.charAt(position))
                         || text.charAt(position) == '.' || text.charAt(position) == '_')) {
                     position++;
                 }
-                type = Type.NUMBER;
+                return Type.NUMBER;
             } else if (character == '"' || character == '\'') {
                 skipQuoted(character);
-                type = character == '"' ? Type.STRING : Type.CHARACTER;
-            } else {
-                position += OPERATORS.stream().filter(operator -> text.startsWith(operator, start))
-                        .findFirst().map(String::length).orElse(1);
-                type = Type.SYMBOL;
+                return character == '"' ? Type.STRING : Type.CHARACTER;
             }
-            position = Math.min(position, text.length());
-            Lexeme lexeme = new Lexeme(type, text.substring(start, position), startLine);
-            skipSpaceAndComments();
-            return lexeme;
+            position += OPERATORS.stream().filter(operator -> text.startsWith(operator, start))
+                    .findFirst().map(String::length).orElse(1);
+            return Type.SYMBOL;
         }
 
         // Strings and characters, including text blocks; a line break ends an unterminated one.

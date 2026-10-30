@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -105,6 +106,20 @@ class SubmissionPreparationServiceTest {
         assertTrue(hasFinding(result, "JAVA_FILE_RELOCATED", true));
         assertTrue(Files.exists(result.normalizedRoot().resolve("Q1/Q1a.java")));
         assertTrue(Files.exists(result.normalizedRoot().resolve("Q3/Q3.java")));
+    }
+
+    @Test
+    void reportsProgressForEverySubmission() throws IOException {
+        Path batch = Files.createDirectory(tempDirectory.resolve("batch"));
+        createRequiredFiles(Files.createDirectory(batch.resolve("alice.2026")), COMPLETE_HEADER);
+        createRequiredFiles(Files.createDirectory(batch.resolve("dana.2026")),
+                "// Name: Dana Example\n// Email: dana.2026@school.example\n");
+        List<String> reports = new ArrayList<>();
+
+        service.prepareBatch(batch, tempDirectory.resolve("normalized"),
+                (done, total, name) -> reports.add(done + "/" + total));
+
+        assertEquals(List.of("1/2", "2/2"), reports);
     }
 
     @Test

@@ -161,10 +161,9 @@ final class TesterTestCases {
                     code[index] = true;
                     if (current == '{') {
                         openBraces.push(index);
+                    } else if (current == '}' && openBraces.isEmpty()) {
+                        return false;
                     } else if (current == '}') {
-                        if (openBraces.isEmpty()) {
-                            return false;
-                        }
                         closingBrace.put(openBraces.pop(), index);
                     }
                     index++;
@@ -208,26 +207,28 @@ final class TesterTestCases {
 
         private int endOfTryStatement(int tryBlockEnd) {
             int end = tryBlockEnd;
-            while (true) {
-                int next = nextSignificant(end + 1);
-                String word = wordStartingAt(next);
-                int block;
-                if (word.equals("catch")) {
-                    int parameters = nextSignificant(next + word.length());
-                    if (parameters < 0 || text.charAt(parameters) != '(') {
-                        return end;
-                    }
-                    block = nextSignificant(closingParenthesis(parameters) + 1);
-                } else if (word.equals("finally")) {
-                    block = nextSignificant(next + word.length());
-                } else {
-                    return end;
-                }
-                if (block < 0 || !closingBrace.containsKey(block)) {
-                    return end;
-                }
+            int block = clauseBlock(end);
+            while (block >= 0 && closingBrace.containsKey(block)) {
                 end = closingBrace.get(block);
+                block = clauseBlock(end);
             }
+            return end;
+        }
+
+        // The opening brace of a catch or finally block right after end, or -1 when none follows.
+        private int clauseBlock(int end) {
+            int next = nextSignificant(end + 1);
+            String word = wordStartingAt(next);
+            if (word.equals("catch")) {
+                int parameters = nextSignificant(next + word.length());
+                if (parameters < 0 || text.charAt(parameters) != '(') {
+                    return -1;
+                }
+                return nextSignificant(closingParenthesis(parameters) + 1);
+            } else if (word.equals("finally")) {
+                return nextSignificant(next + word.length());
+            }
+            return -1;
         }
 
         private long headersWithin(Span span) {

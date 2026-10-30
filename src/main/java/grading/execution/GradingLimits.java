@@ -12,9 +12,12 @@ import java.util.Objects;
  * @param executionTimeout   the longest a tester run may take
  * @param maxMemoryMegabytes the heap each javac and tester JVM may use
  * @param parallelStudents   how many students are graded at the same time
+ * @param javaRelease        the Java version student and tester code is compiled for
  */
 record GradingLimits(Duration compileTimeout, Duration executionTimeout, int maxMemoryMegabytes,
-        int parallelStudents) {
+        int parallelStudents, int javaRelease) {
+
+    private static final int MIN_JAVA_RELEASE = 8;
 
     GradingLimits {
         requirePositive(compileTimeout);
@@ -25,11 +28,16 @@ record GradingLimits(Duration compileTimeout, Duration executionTimeout, int max
         if (parallelStudents < 1) {
             throw new IllegalArgumentException("At least one student must be graded at a time.");
         }
+        int newest = Runtime.version().feature();
+        if (javaRelease < MIN_JAVA_RELEASE || javaRelease > newest) {
+            throw new IllegalArgumentException("grading.java-release must be between " + MIN_JAVA_RELEASE
+                    + " and " + newest + ".");
+        }
     }
 
     static GradingLimits of(GradingSettings settings) {
         return new GradingLimits(settings.compileTimeout(), settings.executionTimeout(),
-                settings.maxMemoryMegabytes(), settings.parallelStudents());
+                settings.maxMemoryMegabytes(), settings.parallelStudents(), settings.javaRelease());
     }
 
     /** The JVM option that caps a javac or tester run's memory. */

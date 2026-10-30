@@ -1,19 +1,18 @@
 package ui;
 
-import grading.assessment.AssessmentDefinition;
 import grading.common.FileTrees;
 import grading.common.Messages;
 import grading.config.GradingSettings;
+import grading.progress.GradingStatus;
 import grading.progress.ProgressSnapshot;
 import grading.progress.ProgressTracker;
 import grading.progress.StudentProgress;
 import grading.reporting.AttemptReportWriter;
 import grading.reporting.ReportArchive;
-import grading.reporting.ScoreSheet;
 import grading.reporting.ScoreSheetPreview;
-import grading.reporting.ScoreSheetUpdater;
 import grading.session.GradingSession;
 import grading.session.SessionRefusal;
+import grading.session.WorkFolders;
 import grading.submission.IdentitySuggestions;
 import grading.submission.StudentIdentity;
 import grading.submission.SubmissionFinding;
@@ -21,8 +20,8 @@ import grading.submission.SubmissionValidationResult;
 import grading.tester.TesterValidationResult;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -33,9 +32,6 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
 import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
@@ -48,27 +44,22 @@ import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
-import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
-import javafx.util.Duration;
 
 /**
- * Connects the main window to the marker's {@link GradingSession}: importing testers, submissions and
- * the score sheet, starting, cancelling and regrading, and showing the session's progress. All grading
- * state lives in the session; this class only shows it and passes on what the marker asks for.
+ * Connects the main window to the marker's {@link GradingSession}: it passes on what the marker asks for and
+ * shows what the session reports. Grading state lives in the session; the score sheet in
+ * {@link ScoreSheetActions}; polling in {@link RunMonitor}; and the wording in {@link ConsoleText},
+ * {@link Readiness}, {@link FindingsText} and {@link GradingSummaryText}.
  */
 public final class MainViewController {
 
     private static final Logger LOG = Logger.getLogger(MainViewController.class.getName());
-    private static final Duration POLL_INTERVAL = Duration.millis(250);
-    private static final String WORK_FOLDER_PREFIX = "auto-grader-";
     private static final String GRADED_SHEET_SUFFIX = "-graded.csv";
-    private static final String SECONDS_FORMAT = "%d:%02d";
-    private static final int SECONDS_PER_MINUTE = 60;
     // How long closing the window waits for a cancelled run to stop its processes before deleting files.
     private static final long SHUTDOWN_WAIT_MILLIS = 30_000;
     private static final long SHUTDOWN_POLL_MILLIS = 50;
@@ -77,8 +68,10 @@ public final class MainViewController {
     private final ProgressTracker progress = new ProgressTracker();
     private final IdentityDialog identityDialog =
             new IdentityDialog(new IdentitySuggestions(settings.emailDomain()));
-    private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
-    private final Timeline poller = new Timeline(new KeyFrame(POLL_INTERVAL, event -> pollProgress()));
+    private final ScoreSheetActions scoreSheet = new ScoreSheetActions();
+    private final ConsoleText console = new ConsoleText();
+    private final RunMonitor monitor = new RunMonitor(progress::snapshot, () -> this.session.grading(),
+            this::showRunProgress, this::finishRun);
     private ResultsTable resultsTable;
     private StudentDetailPane detailPane;
     private SimilarityList similarityList;
@@ -93,13 +86,9 @@ public final class MainViewController {
     private boolean submissionsImported;
     private boolean identityPromptOffered;
     private boolean identityPromptEnabled = true;
-    private ScoreSheet scoreSheet;
-    // Why the last score sheet import failed; kept on screen until a sheet is imported.
-    private String scoreSheetProblem;
-    private String testerReport = "";
-    private String submissionReport = "";
-    private String gradingReport = "";
-    private String scoreSheetReport = "";
+
+    @FXML
+    private Button helpButton;
 
     @FXML
     private Button testerImportButton;
@@ -192,11 +181,17 @@ public final class MainViewController {
                     showDetail();
                     updateButtons();
                 });
-        poller.setCycleCount(Animation.INDEFINITE);
         updateSimilarityTab();
+        startSession(Path.of(System.getProperty("java.io.tmpdir")));
+    }
 
+    private void startSession(Path temporaryRoot) {
+        Thread sweep = new Thread(() -> WorkFolders.removeAbandoned(temporaryRoot, Instant.now()),
+                "abandoned-workspace-cleanup");
+        sweep.setDaemon(true);
+        sweep.start();
         try {
-            workFolder = Files.createTempDirectory(WORK_FOLDER_PREFIX);
+            workFolder = WorkFolders.create(temporaryRoot);
             session = new GradingSession(settings, progress, workFolder);
         } catch (IOException exception) {
             findingsConsole.setText("The temporary work folder could not be created: "
@@ -204,6 +199,11 @@ public final class MainViewController {
             testerImportButton.setDisable(true);
             submissionImportButton.setDisable(true);
         }
+    }
+
+    @FXML
+    private void showHelp() {
+        HelpDialog.show(helpButton.getScene().getWindow());
     }
 
     /** Lets the controller open report files in the system's PDF viewer. */
@@ -231,15 +231,13 @@ public final class MainViewController {
         runInBackground(() -> session.importTesters(source), "tester-file-validator", this::showTesterResult,
                 failure -> {
                     testerImported = true;
-                    testerReport = "Tester-file validation failed\n"
+                    console.setTesters("Tester-file validation failed\n"
                             + "=============================\n"
                             + Messages.describe(failure)
                             + "\n  Next step for marker: Confirm that the selected folder is readable and contains "
                             + "the official tester sources, then import it again.\n"
-                            + keptTestersNote();
-                    refreshConsole();
-                    statusText.setText("Validation failed");
-                    consoleStatus.setText("Tester import not completed");
+                            + keptTestersNote());
+                    showImportFailure("Tester import not completed");
                 });
     }
 
@@ -261,21 +259,36 @@ public final class MainViewController {
         identityPromptOffered = false;
         statusText.setText("Validating submissions");
         consoleStatus.setText("Validation in progress");
-        runInBackground(() -> session.importSubmissions(source), "submission-validator", this::showSubmissions,
-                failure -> {
+        runInBackground(() -> session.importSubmissions(source, (done, total, name) ->
+                Platform.runLater(() -> showImportProgress(done, total, name))), "submission-validator",
+                this::showSubmissions, failure -> {
+                    setVisible(progressBox, false);
                     submissionsImported = true;
-                    submissionReport = "Submission validation failed\n"
+                    console.setSubmissions("Submission validation failed\n"
                             + "============================\n"
                             + Messages.describe(failure)
                             + "\n  Next step for marker: Confirm that the selected folder is readable, repair or "
                             + "re-extract it if necessary, then import it again.\n\n"
                             + "No source files were changed."
                             + (submissions.isEmpty() ? "" : " The previously imported submissions are kept.")
-                            + "\n";
-                    refreshConsole();
-                    statusText.setText("Validation failed");
-                    consoleStatus.setText("Import not completed");
+                            + "\n");
+                    showImportFailure("Import not completed");
                 });
+    }
+
+    private void showImportProgress(int done, int total, String name) {
+        if (!inputTaskRunning) {
+            return;
+        }
+        setVisible(progressBox, true);
+        gradingProgress.setProgress((double) done / total);
+        progressText.setText("Preparing " + done + " of " + total + " · " + name);
+    }
+
+    private void showImportFailure(String status) {
+        refreshConsole();
+        statusText.setText("Validation failed");
+        consoleStatus.setText(status);
     }
 
     @FXML
@@ -319,7 +332,7 @@ public final class MainViewController {
             return;
         }
         runInProgress = true;
-        gradingReport = "";
+        console.setGrading("");
         statusText.setText("Grading in progress");
         consoleStatus.setText(description);
         gradingProgress.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
@@ -327,61 +340,37 @@ public final class MainViewController {
         setVisible(progressBox, true);
         setVisible(cancelButton, true);
         updateButtons();
-        poller.play();
+        monitor.start();
     }
 
-    private void pollProgress() {
-        ProgressSnapshot snapshot = progress.snapshot();
+    private void showRunProgress(ProgressSnapshot snapshot) {
         showSnapshot(snapshot);
-        if (session.grading()) {
-            gradingProgress.setProgress(snapshot.total() == 0
-                    ? ProgressBar.INDETERMINATE_PROGRESS : (double) snapshot.done() / snapshot.total());
-            progressText.setText(progressLine(snapshot));
-            findingsConsole.setText(String.join("\n", snapshot.activity()));
-            findingsConsole.positionCaret(findingsConsole.getLength());
-            return;
-        }
-        finishRun(snapshot);
-    }
-
-    private static String progressLine(ProgressSnapshot snapshot) {
-        StringBuilder line = new StringBuilder("Grading ").append(snapshot.done()).append(" of ")
-                .append(snapshot.total());
-        if (!snapshot.currentStudent().isEmpty()) {
-            line.append(" · ").append(snapshot.currentStudent());
-        }
-        if (!snapshot.currentStep().isEmpty()) {
-            line.append(" · ").append(snapshot.currentStep());
-        }
-        long seconds = snapshot.elapsedSeconds();
-        return line.append(" · ").append(String.format(Locale.ROOT, SECONDS_FORMAT,
-                seconds / SECONDS_PER_MINUTE, seconds % SECONDS_PER_MINUTE)).toString();
+        gradingProgress.setProgress(snapshot.total() == 0
+                ? ProgressBar.INDETERMINATE_PROGRESS : (double) snapshot.done() / snapshot.total());
+        progressText.setText(RunMonitor.progressLine(snapshot));
+        findingsConsole.setText(String.join("\n", snapshot.activity()));
+        findingsConsole.positionCaret(findingsConsole.getLength());
     }
 
     private void finishRun(ProgressSnapshot snapshot) {
-        poller.stop();
+        showSnapshot(snapshot);
         runInProgress = false;
         setVisible(progressBox, false);
         setVisible(cancelButton, false);
-        String lastLine = snapshot.activity().isEmpty() ? "" : snapshot.activity().getLast();
-        long needsReview = snapshot.students().stream()
-                .filter(student -> !student.status().equals("graded") && !student.status().equals("auto-fixed"))
-                .count();
-        if (lastLine.startsWith("Grading cancelled")) {
-            statusText.setText("Grading cancelled");
-        } else if (lastLine.startsWith("Grading failed")) {
-            statusText.setText("Grading failed");
-        } else {
-            statusText.setText(needsReview == 0 ? "Grading complete" : "Grading complete — review errors");
-        }
+        long needsReview = snapshot.students().stream().filter(student -> !student.status().isClean()).count();
+        statusText.setText(switch (session.lastOutcome()) {
+            case CANCELLED -> "Grading cancelled";
+            case FAILED -> "Grading failed";
+            case COMPLETED, NONE -> needsReview == 0 ? "Grading complete" : "Grading complete — review errors";
+        });
         consoleStatus.setText(snapshot.students().size() - needsReview + " graded, " + needsReview
                 + " need review or were skipped");
         if (resultsTable.selected().isEmpty() && !snapshot.students().isEmpty()) {
             resultsTable.select(snapshot.students().getFirst().username());
         }
-        gradingReport = GradingSummaryText.format(snapshot, session.reportsFolder())
-                + "\nProcess log\n===========\n" + String.join("\n", snapshot.activity()) + "\n\n";
-        scoreSheetReport = scoreSheetStatus();
+        console.setGrading(GradingSummaryText.format(snapshot, session.reportsFolder())
+                + "\nProcess log\n===========\n" + String.join("\n", snapshot.activity()) + "\n\n");
+        console.setScoreSheet(scoreSheet.status(session.hasResults()));
         refreshConsole();
         updateButtons();
     }
@@ -421,7 +410,7 @@ public final class MainViewController {
         settings = new GradingSettings(current.compileTimeout(), current.executionTimeout(),
                 current.parallelStudents(), current.maxMemoryMegabytes(), current.maxOutputBytes(),
                 current.maxJavaFileBytes(), current.maxZipBytes(), current.maxZipEntries(),
-                current.emailDomain(), current.maxTesterFileBytes(), current.port(), current.style(),
+                current.emailDomain(), current.maxTesterFileBytes(), current.javaRelease(), current.style(),
                 current.penalties(), current.similarity(), folder);
         session = new GradingSession(settings, progress, workFolder);
     }
@@ -451,18 +440,14 @@ public final class MainViewController {
         return detailPane.text();
     }
 
-    /**
-     * Stops the identity dialog from opening by itself; the Resolve issues button still opens it.
-     */
+    /** Stops the identity dialog from opening by itself; the Resolve issues button still opens it. */
     void disableAutomaticIdentityPrompt() {
         identityPromptEnabled = false;
     }
 
-    /**
-     * Stops grading and removes this session's normalized copies; called when the window closes.
-     */
+    /** Stops grading and removes this session's normalized copies; called when the window closes. */
     void shutdown() {
-        poller.stop();
+        monitor.stop();
         Path folder = workFolder;
         workFolder = null;
         if (folder == null || session == null) {
@@ -477,21 +462,23 @@ public final class MainViewController {
         } catch (SessionRefusal refusal) {
             // The run is writing its reports and finishes by itself.
         }
-        // Wait off the UI thread until the run's processes have stopped, then remove the copies.
         GradingSession running = session;
-        Thread cleanup = new Thread(() -> {
-            long deadline = System.currentTimeMillis() + SHUTDOWN_WAIT_MILLIS;
-            while (running.grading() && System.currentTimeMillis() < deadline) {
-                try {
-                    Thread.sleep(SHUTDOWN_POLL_MILLIS);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-            deleteWorkFolder(folder);
-        }, "workspace-cleanup");
+        Thread cleanup = new Thread(() -> deleteAfterRun(running, folder), "workspace-cleanup");
         cleanup.start();
+    }
+
+    // Waits off the UI thread until the run's processes have stopped, then removes the copies.
+    private static void deleteAfterRun(GradingSession running, Path folder) {
+        long deadline = System.currentTimeMillis() + SHUTDOWN_WAIT_MILLIS;
+        while (running.grading() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(SHUTDOWN_POLL_MILLIS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        deleteWorkFolder(folder);
     }
 
     private static void deleteWorkFolder(Path folder) {
@@ -514,22 +501,8 @@ public final class MainViewController {
     }
 
     void importScoreSheet(Path source) {
-        try {
-            scoreSheet = ScoreSheet.load(source);
-            scoreSheetProblem = null;
-            scoreSheetReport = scoreSheetStatus();
-            consoleStatus.setText("Score sheet imported: " + scoreSheet.rowCount() + " students");
-        } catch (IOException exception) {
-            scoreSheet = null;
-            scoreSheetProblem = "Score sheet not imported\n"
-                    + "========================\n"
-                    + Messages.describe(exception) + "\n"
-                    + "Save filled sheet stays unavailable until a score sheet is imported.\n\n";
-            scoreSheetReport = scoreSheetProblem;
-            consoleStatus.setText("Score sheet not imported");
-        }
+        show(scoreSheet.importSheet(source, session != null && session.hasResults()));
         updateButtons();
-        refreshConsole();
     }
 
     @FXML
@@ -547,51 +520,29 @@ public final class MainViewController {
      * @param target       asks where to save the filled copy; empty when the marker cancels
      */
     void saveFilledSheet(Predicate<ScoreSheetPreview> confirmation, Supplier<Optional<Path>> target) {
-        if (isBusy() || scoreSheet == null || !session.hasResults()) {
+        if (isBusy() || !scoreSheet.hasSheet() || !session.hasResults()) {
             return;
         }
-        ScoreSheetPreview preview = scoreSheetUpdater.preview(scoreSheet, session.currentScores());
-        if (preview.entries().isEmpty()) {
-            scoreSheetReport = "Scores not saved\n================\n"
-                    + "No graded student matches a username in the imported score sheet. "
-                    + "Check that the correct sheet was imported.\n\n"
-                    + ScoreSheetConfirmation.describe(preview) + "\n";
+        scoreSheet.saveFilled(session.currentScores(), confirmation, target).ifPresent(this::show);
+    }
+
+    private void show(ScoreSheetActions.Result result) {
+        if (result.consoleText() != null) {
+            console.setScoreSheet(result.consoleText());
             refreshConsole();
-            return;
         }
-        if (!confirmation.test(preview)) {
-            return;
+        if (result.statusText() != null) {
+            statusText.setText(result.statusText());
         }
-        Optional<Path> chosen = target.get();
-        if (chosen.isEmpty()) {
-            return;
+        if (result.consoleStatus() != null) {
+            consoleStatus.setText(result.consoleStatus());
         }
-        Path file = chosen.get().toAbsolutePath().normalize();
-        if (file.equals(scoreSheet.path().toAbsolutePath().normalize())) {
-            consoleStatus.setText("Choose a different file name; the original sheet is kept unchanged.");
-            return;
-        }
-        try {
-            Files.write(file, scoreSheetUpdater.filledContent(preview));
-            scoreSheetReport = "Filled score sheet saved\n"
-                    + "========================\n"
-                    + ScoreSheetConfirmation.describe(preview)
-                    + "Saved to: " + file + "\nThe imported sheet was not changed.\n\n";
-            statusText.setText("Filled score sheet saved");
-            consoleStatus.setText(preview.entries().size() + " scores saved to " + file.getFileName());
-        } catch (IOException exception) {
-            scoreSheetReport = "Scores not saved\n================\n" + Messages.describe(exception)
-                    + "\nClose the file if it is open in Excel, then try again.\n\n";
-            statusText.setText("Score sheet not saved");
-            consoleStatus.setText("Score sheet not saved");
-        }
-        refreshConsole();
     }
 
     private Optional<Path> chooseFilledSheetTarget() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save the filled score sheet");
-        Path original = scoreSheet.path().toAbsolutePath();
+        Path original = scoreSheet.sheetPath().toAbsolutePath();
         if (original.getParent() != null) {
             chooser.setInitialDirectory(original.getParent().toFile());
         }
@@ -600,17 +551,6 @@ public final class MainViewController {
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files", "*.csv"));
         File selected = chooser.showSaveDialog(writeScoresButton.getScene().getWindow());
         return Optional.ofNullable(selected).map(File::toPath);
-    }
-
-    private String scoreSheetStatus() {
-        if (scoreSheet == null) {
-            return scoreSheetProblem == null ? "" : scoreSheetProblem;
-        }
-        String nextStep = session != null && session.hasResults()
-                ? "Select Save filled sheet to save a copy filled with this run's totals."
-                : "Run grading, then select Save filled sheet.";
-        return "Score sheet: " + scoreSheet.path() + " (" + scoreSheet.rowCount() + " students). "
-                + nextStep + "\n\n";
     }
 
     @FXML
@@ -638,47 +578,35 @@ public final class MainViewController {
         runInBackground(() -> {
             ReportArchive.save(reports.get(), zipFile);
             return zipFile;
-        }, "report-archive", saved -> {
-            statusText.setText("Reports saved");
-            consoleStatus.setText("Reports saved to " + saved.getFileName());
-            scoreSheetReport = "Reports saved\n=============\n" + saved.toAbsolutePath() + "\n\n"
-                    + scoreSheetStatus();
-            refreshConsole();
-        }, failure -> {
-            statusText.setText("Reports not saved");
-            consoleStatus.setText("Reports not saved");
-            scoreSheetReport = "Reports not saved\n=================\n" + Messages.describe(failure)
-                    + "\n\n" + scoreSheetStatus();
-            refreshConsole();
-        });
+        }, "report-archive", saved -> showReportsSaved("Reports saved", "Reports saved to " + saved.getFileName(),
+                saved.toAbsolutePath().toString()),
+                failure -> showReportsSaved("Reports not saved", "Reports not saved", Messages.describe(failure)));
+    }
+
+    private void showReportsSaved(String status, String shortStatus, String detail) {
+        statusText.setText(status);
+        consoleStatus.setText(shortStatus);
+        console.setScoreSheet(status + "\n" + "=".repeat(status.length()) + "\n" + detail + "\n\n"
+                + scoreSheet.status(session.hasResults()));
+        refreshConsole();
     }
 
     private void showSubmissions(List<SubmissionValidationResult> results) {
+        setVisible(progressBox, false);
         long ready = results.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
         final long skipped = results.size() - ready;
         submissionsImported = true;
         submissions = List.copyOf(results);
-        gradingReport = "";
-
-        TreeItem<String> root = new TreeItem<>("Normalized submissions");
-        root.setExpanded(true);
-        for (SubmissionValidationResult result : results) {
-            TreeItem<String> student = new TreeItem<>(result.username() + statusSuffix(result));
-            student.setExpanded(true);
-            if (result.normalizedRoot() != null) {
-                addNormalizedTree(student, result.normalizedRoot());
-            }
-            root.getChildren().add(student);
-        }
-        submissionFiles.setRoot(root);
+        submissionFiles.setRoot(SubmissionTrees.submissions(results));
         submissionFiles.setShowRoot(true);
         setVisible(submissionEmptyState, results.isEmpty());
 
-        submissionReport = FindingsText.submissions(results);
-        scoreSheetReport = scoreSheetStatus();
+        console.setGrading("");
+        console.setSubmissions(FindingsText.submissions(results));
+        console.setScoreSheet(scoreSheet.status(session.hasResults()));
         showSnapshot(progress.snapshot());
         refreshConsole();
-        statusText.setText(skipped == 0 ? formatSubmissionReadiness(ready, results.size()) : "Review required");
+        statusText.setText(skipped == 0 ? Readiness.submissionCount(ready, results.size()) : "Review required");
         consoleStatus.setText(String.format(Locale.ROOT, "%d ready, %d need attention", ready, skipped));
         updateButtons();
         if (identityPromptEnabled && resolveIssuesButton.isVisible() && !identityPromptOffered) {
@@ -716,8 +644,8 @@ public final class MainViewController {
             }
             return session.submissions();
         }, "submission-identity-correction", this::showSubmissions, failure -> {
-            submissionReport += "\nGuided correction could not be completed: " + Messages.describe(failure)
-                    + "\nNext step for marker: Review the entered identity values and try Resolve issues again.\n";
+            console.appendSubmissions("\nGuided correction could not be completed: " + Messages.describe(failure)
+                    + "\nNext step for marker: Review the entered identity values and try Resolve issues again.\n");
             refreshConsole();
             statusText.setText("Correction failed");
             consoleStatus.setText("Verified details were not applied");
@@ -726,21 +654,13 @@ public final class MainViewController {
 
     private void showTesterResult(TesterValidationResult result) {
         testerImported = true;
-        TreeItem<String> root = new TreeItem<>(
-                result.source().getFileName() + (result.isValid() ? " - valid" : " - needs attention"));
-        root.setExpanded(true);
-        result.testerFiles().entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .forEach(entry -> root.getChildren().add(new TreeItem<>(entry.getKey())));
-        testerFiles.setRoot(root);
+        testerFiles.setRoot(SubmissionTrees.testers(result));
         testerFiles.setShowRoot(true);
         setVisible(testerEmptyState, false);
-
-        testerReport = FindingsText.testers(result) + (result.isValid() ? "" : keptTestersNote());
+        console.setTesters(FindingsText.testers(result) + (result.isValid() ? "" : keptTestersNote()));
         refreshConsole();
         statusText.setText(result.isValid() ? "Tester files ready" : "Review required");
         consoleStatus.setText(result.isValid() ? "Tester files valid" : "Tester files need attention");
-        updateButtons();
     }
 
     private String keptTestersNote() {
@@ -748,39 +668,8 @@ public final class MainViewController {
                 ? "\nThe tester files imported earlier are still valid and are used for grading.\n" : "";
     }
 
-    private void addNormalizedTree(TreeItem<String> student, Path normalizedRoot) {
-        try {
-            for (String question : AssessmentDefinition.questionFolders()) {
-                Path questionPath = normalizedRoot.resolve(question);
-                if (!Files.isDirectory(questionPath)) {
-                    continue;
-                }
-                TreeItem<String> questionItem = new TreeItem<>(question);
-                try (var children = Files.list(questionPath)) {
-                    children.sorted().forEach(file -> questionItem.getChildren()
-                            .add(new TreeItem<>(file.getFileName().toString())));
-                }
-                student.getChildren().add(questionItem);
-            }
-        } catch (IOException exception) {
-            student.getChildren().add(new TreeItem<>("Could not display normalized files"));
-        }
-    }
-
-    private static String statusSuffix(SubmissionValidationResult result) {
-        if (!result.isReadyForGrading()) {
-            return " - needs attention";
-        }
-        List<String> missing = FindingsText.missingQuestions(result);
-        if (!missing.isEmpty()) {
-            return " - ready, missing " + String.join(", ", missing);
-        }
-        return result.correctedCount() > 0 ? " - ready (corrected)" : " - ready";
-    }
-
     private void refreshConsole() {
-        String separator = !testerReport.isBlank() && !submissionReport.isBlank() ? "\n" : "";
-        findingsConsole.setText(scoreSheetReport + gradingReport + testerReport + separator + submissionReport);
+        findingsConsole.setText(console.text());
         findingsConsole.positionCaret(0);
     }
 
@@ -792,36 +681,14 @@ public final class MainViewController {
         submissionImportButton.setDisable(busy || session == null);
         resolveIssuesButton.setDisable(busy);
         scoreSheetImportButton.setDisable(busy);
-        writeScoresButton.setDisable(busy || !hasResults || scoreSheet == null);
+        writeScoresButton.setDisable(busy || !hasResults || !scoreSheet.hasSheet());
         saveReportsButton.setDisable(busy || session == null || session.reportsFolder().isEmpty());
         regradeButton.setDisable(busy || !hasResults || resultsTable.selected()
-                .map(student -> student.status().equals("skipped")).orElse(true));
-        boolean identityIssues = submissions.stream().anyMatch(MainViewController::needsIdentityInput);
-        setVisible(resolveIssuesButton, identityIssues);
-
+                .map(student -> student.status() == GradingStatus.SKIPPED).orElse(true));
+        setVisible(resolveIssuesButton, submissions.stream().anyMatch(MainViewController::needsIdentityInput));
         long ready = submissions.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
-        if (runInProgress) {
-            runReadinessText.setText("Grading in progress. Watch the table; Cancel stops the run.");
-        } else if (inputTaskRunning) {
-            runReadinessText.setText("Validating inputs. Please wait.");
-        } else if (testerImported && submissionsImported) {
-            if (!inputsReady()) {
-                runReadinessText.setText("Resolve the reported validation errors before grading.");
-            } else if (ready < submissions.size()) {
-                runReadinessText.setText(formatSubmissionReadiness(ready, submissions.size())
-                        + ". The others are skipped until their identity is confirmed.");
-            } else if (hasResults) {
-                runReadinessText.setText("Graded. Select a student to see why marks were lost, or regrade them.");
-            } else {
-                runReadinessText.setText("Both folders are validated and ready.");
-            }
-        } else if (testerImported) {
-            runReadinessText.setText("Import student submissions to complete input validation.");
-        } else if (submissionsImported) {
-            runReadinessText.setText("Import tester files to complete input validation.");
-        } else {
-            runReadinessText.setText("Import both folders to get started.");
-        }
+        runReadinessText.setText(new Readiness(runInProgress, inputTaskRunning, testerImported, submissionsImported,
+                inputsReady(), ready, submissions.size(), hasResults).message());
     }
 
     private boolean isBusy() {
@@ -833,7 +700,7 @@ public final class MainViewController {
     }
 
     static String formatSubmissionReadiness(long ready, long total) {
-        return ready + " out of " + total + " submissions ready";
+        return Readiness.submissionCount(ready, total);
     }
 
     private static boolean needsIdentityInput(SubmissionValidationResult result) {

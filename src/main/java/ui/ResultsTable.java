@@ -1,10 +1,12 @@
 package ui;
 
 import grading.assessment.AssessmentDefinition;
+import grading.progress.GradingStatus;
 import grading.progress.ProgressSnapshot;
 import grading.progress.StudentProgress;
+import grading.scoring.Marks;
 import java.util.List;
-import java.util.Locale;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Consumer;
 import javafx.beans.binding.Bindings;
@@ -29,8 +31,8 @@ final class ResultsTable {
     private static final double STUDENT_COLUMN_WIDTH = 170;
     private static final double QUESTION_COLUMN_WIDTH = 58;
     private static final double STATUS_COLUMN_WIDTH = 110;
-    private static final List<String> STATUS_STYLES = List.of("status-queued", "status-running",
-            "status-graded", "status-needs-review", "status-skipped", "status-auto-fixed");
+    private static final List<String> STATUS_STYLES = Arrays.stream(GradingStatus.values())
+            .map(GradingStatus::styleClass).toList();
 
     private final ObservableList<StudentProgress> rows = FXCollections.observableArrayList();
     private final TableView<StudentProgress> table = new TableView<>(rows);
@@ -42,7 +44,13 @@ final class ResultsTable {
         table.setId("resultsTable");
         table.setPlaceholder(new Label("Import student submissions to list them here."));
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        addMarkColumns();
+        addStatusColumns();
+        table.setRowFactory(view -> regradeRow(regrade));
+    }
 
+    // The student, one column per question part, and the total.
+    private void addMarkColumns() {
         TableColumn<StudentProgress, String> student = new TableColumn<>("Student");
         student.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().username()));
         student.setPrefWidth(STUDENT_COLUMN_WIDTH);
@@ -63,9 +71,11 @@ final class ResultsTable {
         total.setPrefWidth(QUESTION_COLUMN_WIDTH);
         total.setStyle("-fx-alignment: CENTER-RIGHT; -fx-font-weight: bold;");
         table.getColumns().add(total);
+    }
 
-        TableColumn<StudentProgress, String> status = new TableColumn<>("Status");
-        status.setCellValueFactory(cell -> new ReadOnlyStringWrapper(cell.getValue().status()));
+    private void addStatusColumns() {
+        TableColumn<StudentProgress, GradingStatus> status = new TableColumn<>("Status");
+        status.setCellValueFactory(cell -> new ReadOnlyObjectWrapper<>(cell.getValue().status()));
         status.setCellFactory(column -> new StatusCell());
         status.setPrefWidth(STATUS_COLUMN_WIDTH);
         table.getColumns().add(status);
@@ -74,16 +84,17 @@ final class ResultsTable {
         flags.setCellValueFactory(cell -> new ReadOnlyObjectWrapper<>(cell.getValue().flags().size()));
         flags.setCellFactory(column -> new FlagCell());
         table.getColumns().add(flags);
+    }
 
-        table.setRowFactory(view -> {
-            TableRow<StudentProgress> row = new TableRow<>();
-            MenuItem regradeItem = new MenuItem("Regrade this student");
-            regradeItem.setOnAction(event -> regrade.accept(row.getItem().username()));
-            ContextMenu menu = new ContextMenu(regradeItem);
-            row.contextMenuProperty().bind(Bindings
-                    .when(row.emptyProperty()).then((ContextMenu) null).otherwise(menu));
-            return row;
-        });
+    // A row whose right-click menu regrades its student; empty rows have no menu.
+    private static TableRow<StudentProgress> regradeRow(Consumer<String> regrade) {
+        TableRow<StudentProgress> row = new TableRow<>();
+        MenuItem regradeItem = new MenuItem("Regrade this student");
+        regradeItem.setOnAction(event -> regrade.accept(row.getItem().username()));
+        ContextMenu menu = new ContextMenu(regradeItem);
+        row.contextMenuProperty().bind(Bindings
+                .when(row.emptyProperty()).then((ContextMenu) null).otherwise(menu));
+        return row;
     }
 
     TableView<StudentProgress> view() {
@@ -129,22 +140,22 @@ final class ResultsTable {
     }
 
     private static String formatMarks(Double marks) {
-        return marks == null ? "" : String.format(Locale.ROOT, "%.1f", marks);
+        return marks == null ? "" : Marks.format(marks);
     }
 
     /** The status text, coloured by a style class named after it. */
-    private static final class StatusCell extends TableCell<StudentProgress, String> {
+    private static final class StatusCell extends TableCell<StudentProgress, GradingStatus> {
 
         @Override
-        protected void updateItem(String status, boolean empty) {
+        protected void updateItem(GradingStatus status, boolean empty) {
             super.updateItem(status, empty);
             getStyleClass().removeAll(STATUS_STYLES);
             if (empty || status == null) {
                 setText(null);
                 return;
             }
-            setText(status);
-            getStyleClass().add("status-" + status);
+            setText(status.label());
+            getStyleClass().add(status.styleClass());
         }
     }
 

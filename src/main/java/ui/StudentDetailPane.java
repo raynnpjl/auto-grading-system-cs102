@@ -2,10 +2,10 @@ package ui;
 
 import grading.feedback.Feedback;
 import grading.progress.StudentProgress;
+import grading.scoring.Marks;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -78,13 +78,17 @@ final class StudentDetailPane {
             content.getChildren().add(muted("Select a student in the table to see their details."));
             return;
         }
-        Label heading = new Label(next.username() + " — " + next.status()
-                + (next.scores().isEmpty() ? "" : String.format(Locale.ROOT, " — total %.1f", next.total())));
+        Label heading = new Label(next.username() + " — " + next.status().label()
+                + (next.scores().isEmpty() ? "" : " — total " + Marks.format(next.total())));
         heading.getStyleClass().add("section-title");
         content.getChildren().addAll(heading, openReport);
 
         section("Submission problems", next.issues(), "None.", false);
         section("Similar answers", next.flags(), "None.", true);
+        showFeedback(next);
+    }
+
+    private void showFeedback(StudentProgress next) {
         content.getChildren().add(title("Why marks were lost"));
         if (next.feedback().isEmpty()) {
             content.getChildren().add(muted(next.finished() ? "No marks lost." : "Shown once graded."));

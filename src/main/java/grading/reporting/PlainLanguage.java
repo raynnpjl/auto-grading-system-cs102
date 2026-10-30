@@ -4,6 +4,7 @@ package grading.reporting;
 import grading.common.Messages;
 import grading.execution.QuestionGradingResult;
 import grading.execution.TestCaseResult;
+import grading.scoring.Marks;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.function.Supplier;
@@ -68,7 +69,7 @@ final class PlainLanguage {
     }
 
     static String marks(double value) {
-        return String.format(Locale.ROOT, "%.1f", value);
+        return Marks.format(value);
     }
 
     /** Text that is safe inside a Markdown table cell. */

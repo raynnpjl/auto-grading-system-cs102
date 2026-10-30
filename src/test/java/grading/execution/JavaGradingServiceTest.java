@@ -182,7 +182,7 @@ class JavaGradingServiceTest {
         TesterValidationResult testers = new TesterFileValidationService(SETTINGS).validate(createTesters());
         java.util.ArrayList<String> logs = new java.util.ArrayList<>();
         GradingLimits threeAtATime = new GradingLimits(Duration.ofSeconds(30), Duration.ofSeconds(5),
-                SETTINGS.maxMemoryMegabytes(), 3);
+                SETTINGS.maxMemoryMegabytes(), 3, SETTINGS.javaRelease());
         JavaGradingService parallel = new JavaGradingService(threeAtATime,
                 logs::add, new BoundedProcessRunner(SETTINGS.maxOutputBytes()), new ProgressTracker());
 
@@ -521,7 +521,7 @@ class JavaGradingServiceTest {
     // A grader with the settings' limits except the given time limits.
     private static JavaGradingService grader(Duration compile, Duration execution, Consumer<String> log) {
         GradingLimits limits = new GradingLimits(compile, execution, SETTINGS.maxMemoryMegabytes(),
-                SETTINGS.parallelStudents());
+                SETTINGS.parallelStudents(), SETTINGS.javaRelease());
         return new JavaGradingService(limits, log,
                 new BoundedProcessRunner(SETTINGS.maxOutputBytes()), new ProgressTracker());
     }

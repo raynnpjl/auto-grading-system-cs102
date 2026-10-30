@@ -30,10 +30,7 @@ public final class ReportArchive {
         Path parent = zipFile.toAbsolutePath().getParent();
         Path temporary = Files.createTempFile(parent, ".reports-", ".zip.tmp");
         try {
-            List<Path> files;
-            try (Stream<Path> walk = Files.walk(attemptFolder)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
+            List<Path> files = regularFiles(attemptFolder);
             try (OutputStream output = Files.newOutputStream(temporary);
                     ZipOutputStream zip = new ZipOutputStream(output)) {
                 String root = attemptFolder.getFileName().toString();
@@ -47,6 +44,12 @@ public final class ReportArchive {
             Files.move(temporary, zipFile, StandardCopyOption.REPLACE_EXISTING);
         } finally {
             Files.deleteIfExists(temporary);
+        }
+    }
+
+    private static List<Path> regularFiles(Path folder) throws IOException {
+        try (Stream<Path> walk = Files.walk(folder)) {
+            return walk.filter(Files::isRegularFile).sorted().toList();
         }
     }
 }

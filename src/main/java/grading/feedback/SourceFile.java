@@ -145,16 +145,14 @@ record SourceFile(String name, List<String> lines, Set<Integer> keptLines) {
         char quote = 0;
         for (int index = 0; index < line.length(); index++) {
             char character = line.charAt(index);
-            if (quote != 0) {
-                if (character == quote) {
-                    quote = 0;
-                    out.append(character);
-                } else {
+            if (quote != 0 && character == quote) {
+                quote = 0;
+                out.append(character);
+            } else if (quote != 0) {
+                out.append(' ');
+                if (character == '\\' && index + 1 < line.length()) {
                     out.append(' ');
-                    if (character == '\\' && index + 1 < line.length()) {
-                        out.append(' ');
-                        index++;
-                    }
+                    index++;
                 }
             } else {
                 if (character == '"' || character == '\'') {

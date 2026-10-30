@@ -129,13 +129,16 @@ public final class StyleChecker {
             return FileStyleResult.couldNotAnalyse(fileName, "Could not analyse this file: Checkstyle did not "
                     + "reach it.");
         }
-        List<String> lines;
         try {
-            lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            return analysed(fileName, Files.readAllLines(file, StandardCharsets.UTF_8), key, audit);
         } catch (IOException exception) {
             return FileStyleResult.couldNotAnalyse(fileName, "Could not analyse this file: it could not be read ("
                     + Messages.describe(exception) + ").");
         }
+    }
+
+    // The violations Checkstyle found in a file that was read, leaving out lines kept from the template.
+    private FileStyleResult analysed(String fileName, List<String> lines, String key, Audit audit) {
         Set<Integer> keptLines = Set.of();
         String note = "No template file was found for " + fileName + ", so every line was checked.";
         if (templates.find(fileName).isPresent()) {

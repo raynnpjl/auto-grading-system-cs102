@@ -29,8 +29,7 @@ public final class FileTrees {
         long total = extractedSoFar;
         byte[] buffer = new byte[BUFFER_BYTES];
         try (OutputStream output = Files.newOutputStream(target)) {
-            int read;
-            while ((read = zip.read(buffer)) != -1) {
+            for (int read = zip.read(buffer); read != -1; read = zip.read(buffer)) {
                 total += read;
                 if (total > maxBytes) {
                     throw new IOException("ZIP expands beyond the safe size limit");

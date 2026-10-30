@@ -37,6 +37,10 @@ class MainViewWiringTest {
                 () -> assertTrue(styles.contains(".import-button:pressed")),
                 () -> assertTrue(fxml.contains("fx:id=\"resolveIssuesButton\"")),
                 () -> assertTrue(fxml.contains("onAction=\"#resolveSubmissionIssues\"")),
+                () -> assertTrue(fxml.contains("onAction=\"#showHelp\"")),
+                () -> assertTrue(MainViewController.class
+                        .getDeclaredMethod("showHelp")
+                        .isAnnotationPresent(FXML.class)),
                 () -> assertTrue(styles.contains(".resolution-button")),
                 () -> assertFalse(Pattern.compile("<TreeView[^>]*mouseTransparent=\"true\"")
                         .matcher(fxml)

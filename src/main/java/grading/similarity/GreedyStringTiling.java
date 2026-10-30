@@ -34,7 +34,7 @@ final class GreedyStringTiling implements SimilarityAlgorithm {
         boolean[] coveredFirst = new boolean[firstKinds.length];
         boolean[] coveredSecond = new boolean[secondKinds.length];
         List<Comparison.Match> tiles = new ArrayList<>();
-        int longest;
+        int longest = minMatchLength;
         do {
             longest = minMatchLength;
             List<Comparison.Match> candidates = new ArrayList<>();

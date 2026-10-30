@@ -33,8 +33,7 @@ final class ZipExtractor {
 
         try (InputStream input = new BufferedInputStream(Files.newInputStream(zipFile));
                 ZipInputStream zip = new ZipInputStream(input, StandardCharsets.UTF_8)) {
-            ZipEntry entry;
-            while ((entry = zip.getNextEntry()) != null) {
+            for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
                 entries++;
                 if (entries > maxEntries) {
                     throw new IOException("ZIP contains too many entries");

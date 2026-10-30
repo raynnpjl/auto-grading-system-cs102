@@ -17,7 +17,7 @@ import java.time.Duration;
  * @param maxZipEntries      most entries a submission ZIP may contain
  * @param emailDomain        domain used to complete a student email that is missing from a header
  * @param maxTesterFileBytes largest tester source file that is inspected
- * @param port               port of the web page on this computer
+ * @param javaRelease        the Java version student code is compiled for (javac --release)
  * @param style              style checking and scoring
  * @param penalties          penalties deducted from the tester marks
  * @param similarity         detection of submissions that are too similar to each other
@@ -34,7 +34,7 @@ public record GradingSettings(
         int maxZipEntries,
         String emailDomain,
         long maxTesterFileBytes,
-        int port,
+        int javaRelease,
         StyleSettings style,
         PenaltySettings penalties,
         SimilaritySettings similarity,
@@ -59,7 +59,7 @@ public record GradingSettings(
                 Math.toIntExact(file.positiveNumber("submission.max-zip-entries")),
                 file.text("submission.email-domain"),
                 file.positiveNumber("tester.max-file-bytes"),
-                Math.toIntExact(file.positiveNumber("ui.port")),
+                Math.toIntExact(file.positiveNumber("grading.java-release")),
                 new StyleSettings(
                         Path.of(file.text("style.checkstyle-config")),
                         Path.of(file.text("style.rules")),

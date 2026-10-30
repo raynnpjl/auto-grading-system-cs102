@@ -44,7 +44,7 @@ final class TesterCompiler {
             Path emptySourcepath = Files.createDirectory(workspace.resolve("empty-sourcepath"));
             List<String> command = new ArrayList<>(List.of(
                     GradingProcesses.jdkTool("javac"), "-J" + limits.maxHeapOption(),
-                    "-encoding", "UTF-8", "--release", "21",
+                    "-encoding", "UTF-8", "--release", String.valueOf(limits.javaRelease()),
                     "-proc:none", "-implicit:none", "-classpath", classes.toString(),
                     "-sourcepath", emptySourcepath.toString(), "-d", classes.toString()));
             for (Path source : Stream.concat(files.sources().stream(), Stream.of(testerFile)).toList()) {

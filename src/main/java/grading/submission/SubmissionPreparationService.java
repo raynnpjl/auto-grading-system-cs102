@@ -71,17 +71,33 @@ public final class SubmissionPreparationService {
      * @throws IOException if the input cannot be read at all
      */
     public List<SubmissionValidationResult> prepareBatch(Path input, Path workspace) throws IOException {
+        return prepareBatch(input, workspace, ImportProgress.NONE);
+    }
+
+    /**
+     * The same as {@link #prepareBatch(Path, Path)}, telling {@code progress} after each submission.
+     *
+     * @param input     a submission, or a folder of submissions
+     * @param workspace the folder that receives the normalized copies
+     * @param progress  told how many of the submissions found are done
+     * @return one result per submission found
+     * @throws IOException if the input cannot be read at all
+     */
+    public List<SubmissionValidationResult> prepareBatch(Path input, Path workspace, ImportProgress progress)
+            throws IOException {
         requireReadableInput(input);
         Files.createDirectories(workspace);
 
         List<SubmissionValidationResult> results = new ArrayList<>();
         Set<String> outputNames = new HashSet<>();
-        for (Path submission : discovery.discover(input, workspace)) {
+        List<Path> found = discovery.discover(input, workspace);
+        for (Path submission : found) {
             try {
                 results.add(prepareOne(SubmissionSource.of(submission, zipExtractor), workspace, outputNames));
             } catch (Exception exception) {
                 results.add(unreadable(submission, exception));
             }
+            progress.prepared(results.size(), found.size(), submission.getFileName().toString());
         }
         return List.copyOf(results);
     }

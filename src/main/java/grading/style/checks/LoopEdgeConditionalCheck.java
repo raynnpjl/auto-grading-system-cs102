@@ -63,14 +63,11 @@ public final class LoopEdgeConditionalCheck extends AbstractCheck {
         if (sides.size() != 2) {
             return false;
         }
-        DetailAST other;
-        if (counter.isCounter(sides.get(0))) {
-            other = sides.get(1);
-        } else if (counter.isCounter(sides.get(1))) {
-            other = sides.get(0);
-        } else {
+        int counterSide = counter.isCounter(sides.get(0)) ? 0 : 1;
+        if (!counter.isCounter(sides.get(counterSide))) {
             return false;
         }
+        DetailAST other = sides.get(1 - counterSide);
         String value = SyntaxTrees.canonical(other);
         return value.equals(counter.start()) || value.equals(counter.bound()) || endsWithMinusOne(other);
     }

@@ -71,6 +71,10 @@
                 <configuration>
                     <!-- JavaFX can start only once per JVM, so each UI test class gets a fresh JVM. -->
                     <reuseForks>false</reuseForks>
+                    <!-- Lets SampleAssessmentEndToEndTest find the course materials: -Dsample.assessment.dir=<path> -->
+                    <systemPropertyVariables>
+                        <sample.assessment.dir>${sample.assessment.dir}</sample.assessment.dir>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>

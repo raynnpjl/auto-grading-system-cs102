@@ -5,9 +5,11 @@ import java.util.Optional;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 /** Starts the desktop application and stops any grading still running when the window closes. */
@@ -15,8 +17,8 @@ public class AutoGradingApplication extends Application {
 
     private static final double PREFERRED_WIDTH = 1320;
     private static final double PREFERRED_HEIGHT = 920;
-    private static final double MIN_WIDTH = 1060;
-    private static final double MIN_HEIGHT = 840;
+    private static final double MIN_WIDTH = 960;
+    private static final double MIN_HEIGHT = 660;
 
     private MainViewController controller;
 
@@ -32,7 +34,10 @@ public class AutoGradingApplication extends Application {
         Parent root = loader.load();
         controller = loader.getController();
         controller.useHostServices(getHostServices());
-        Scene scene = new Scene(root, PREFERRED_WIDTH, PREFERRED_HEIGHT);
+        // The first window never opens larger than the screen, such as a 1280x720 projector.
+        Rectangle2D screen = Screen.getPrimary().getVisualBounds();
+        Scene scene = new Scene(root, Math.min(PREFERRED_WIDTH, screen.getWidth()),
+                Math.min(PREFERRED_HEIGHT, screen.getHeight()));
         scene.getStylesheets().add(getClass().getResource("/ui/styles.css").toExternalForm());
 
         stage.setTitle("CS102 Auto Grading System");

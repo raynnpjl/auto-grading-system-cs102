@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
+import grading.progress.GradingStatus;
 import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -237,7 +238,8 @@ class MainViewGradingTest {
         assertFalse(Files.exists(student.resolve("Q1/Q1aTester.java")));
         assertFalse(Files.exists(student.resolve("Q1/Q1a.class")));
         snapshotAndCheckLayout(1320, 920, "grading-results-ui.png");
-        snapshotAndCheckLayout(1060, 840, "grading-results-ui-minimum.png");
+        snapshotAndCheckLayout(1280, 720, "grading-results-ui-720p.png");
+        snapshotAndCheckLayout(960, 660, "grading-results-ui-minimum.png");
     }
 
     private void snapshotAndCheckLayout(int sceneWidth, int sceneHeight, String filename) throws Exception {
@@ -289,7 +291,8 @@ class MainViewGradingTest {
         writeStudent(batch.resolve("bob"), "Bob Student", "bob@smu.edu.sg", null);
         importStudents(batch);
         assertEquals(2, fx(() -> controller.resultsTable().view().getItems().size()));
-        assertEquals("queued", fx(() -> controller.resultsTable().view().getItems().getFirst().status()));
+        assertFalse(fx(() -> root.lookup("#progressBox").isVisible()), "the import progress is hidden again");
+        assertEquals(GradingStatus.QUEUED, fx(() -> controller.resultsTable().view().getItems().getFirst().status()));
     }
 
     @Test

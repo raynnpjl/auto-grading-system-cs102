@@ -43,7 +43,7 @@ public final class ProgressTracker {
         for (SubmissionValidationResult submission : submissions) {
             Row row = new Row(submission.username());
             if (!submission.isReadyForGrading()) {
-                row.status = "skipped";
+                row.status = GradingStatus.SKIPPED;
                 row.finished = true;
             }
             // Shown next to the status: the folder or headers were corrected, never the student's code.
@@ -61,7 +61,7 @@ public final class ProgressTracker {
      * @param username the student's username, which must match a row added by prepare()
      */
     public synchronized void studentStarted(String username) {
-        rows(username).status = "running";
+        rows(username).status = GradingStatus.RUNNING;
         running = true;
         if (startedAt == null) {
             startedAt = Instant.now();
@@ -101,7 +101,7 @@ public final class ProgressTracker {
     public synchronized void studentFinished(String username, boolean hasErrors) {
         Row row = rows(username);
         row.finished = true;
-        row.status = hasErrors ? "needs-review" : "graded";
+        row.status = hasErrors ? GradingStatus.NEEDS_REVIEW : GradingStatus.GRADED;
     }
 
     /**
@@ -154,12 +154,12 @@ public final class ProgressTracker {
      */
     public synchronized void showResult(String username, Map<String, Double> scores, boolean needsReview) {
         Row row = rows.get(username);
-        if (row == null || row.status.equals("skipped")) {
+        if (row == null || row.status == GradingStatus.SKIPPED) {
             return;
         }
         row.scores.putAll(scores);
         row.finished = true;
-        row.status = needsReview ? "needs-review" : "graded";
+        row.status = needsReview ? GradingStatus.NEEDS_REVIEW : GradingStatus.GRADED;
     }
 
     /**
@@ -169,7 +169,7 @@ public final class ProgressTracker {
      */
     public synchronized void regradeStarted(String username) {
         Row row = rows(username);
-        row.status = "queued";
+        row.status = GradingStatus.QUEUED;
         row.finished = false;
         row.scores.clear();
         row.feedback = List.of();
@@ -224,7 +224,7 @@ public final class ProgressTracker {
     /** One student's row in the table. */
     private static final class Row {
         final String username;
-        String status = "queued";
+        GradingStatus status = GradingStatus.QUEUED;
         boolean formatFixed;
         boolean finished;
         final Map<String, Double> scores = new LinkedHashMap<>();
@@ -238,8 +238,8 @@ public final class ProgressTracker {
 
         // A flagged student needs review whatever their grading status was.
         StudentProgress snapshot() {
-            return new StudentProgress(username, flags.isEmpty() ? status : "needs-review", finished, formatFixed,
-                    scores, issues, flags, feedback);
+            GradingStatus shown = flags.isEmpty() ? status : GradingStatus.NEEDS_REVIEW;
+            return new StudentProgress(username, shown, finished, formatFixed, scores, issues, flags, feedback);
         }
     }
 }

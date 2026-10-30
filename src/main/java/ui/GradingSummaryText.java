@@ -1,10 +1,11 @@
 package ui;
 
+import grading.progress.GradingStatus;
 import grading.progress.ProgressSnapshot;
 import grading.progress.StudentProgress;
+import grading.scoring.Marks;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -20,15 +21,15 @@ final class GradingSummaryText {
         StringBuilder text = new StringBuilder("Grading results\n===============\n");
         for (StudentProgress student : snapshot.students()) {
             text.append('[').append(student.username()).append("] ");
-            if (student.status().equals("skipped")) {
+            if (student.status() == GradingStatus.SKIPPED) {
                 text.append("Not graded (confirm identity first)\n");
                 continue;
             }
             String marks = student.scores().entrySet().stream()
-                    .map(entry -> entry.getKey() + ": " + formatMarks(entry.getValue()))
+                    .map(entry -> entry.getKey() + ": " + Marks.format(entry.getValue()))
                     .collect(Collectors.joining("   "));
-            text.append(marks).append("   Total: ").append(formatMarks(student.total()))
-                    .append(" — ").append(student.status()).append('\n');
+            text.append(marks).append("   Total: ").append(Marks.format(student.total()))
+                    .append(" — ").append(student.status().label()).append('\n');
             student.flags().forEach(flag -> text.append("  Similar answer: ").append(flag).append('\n'));
         }
         text.append("\nReports\n=======\n");
@@ -44,9 +45,5 @@ final class GradingSummaryText {
             text.append("Select a student and choose Open PDF report to see their report.\n");
         }
         return text.toString();
-    }
-
-    private static String formatMarks(double marks) {
-        return String.format(Locale.ROOT, "%.1f", marks);
     }
 }

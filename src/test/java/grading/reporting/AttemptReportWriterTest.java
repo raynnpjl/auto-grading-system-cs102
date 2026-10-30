@@ -108,7 +108,8 @@ class AttemptReportWriterTest {
             String root = folder.getFileName() + "/";
             assertTrue(archive.getEntry(root + "summary.pdf") != null);
             assertTrue(archive.getEntry(root + "students/alice.pdf") != null);
-            assertEquals(4, archive.size());
+            assertTrue(archive.getEntry(root + "scores.csv") != null);
+            assertEquals(5, archive.size());
         }
         try (var leftovers = Files.list(zip.getParent())) {
             assertEquals(List.of(zip), leftovers.toList(), "no temporary file is left behind");
@@ -122,6 +123,16 @@ class AttemptReportWriterTest {
         try (PDDocument document = Loader.loadPDF(pdf.toFile())) {
             return new PDFTextStripper().getText(document).replaceAll("\\s+", " ");
         }
+    }
+
+    @Test
+    void writesAScoresCsvWithOneColumnPerQuestion() throws IOException {
+        GradingAttempt attempt = attempt();
+        Path folder = new AttemptReportWriter(temporary.resolve("reports")).write(attempt).folder().orElseThrow();
+        List<String> lines = Files.readAllLines(folder.resolve("scores.csv"));
+        assertEquals("Username,Q1a,Q1b,Q2a,Q2b,Q3,Tester total,Style violations,Style penalty,Final mark",
+                lines.getFirst());
+        assertEquals(attempt.scores().size() + 1, lines.size());
     }
 
     private GradingAttempt attempt() {

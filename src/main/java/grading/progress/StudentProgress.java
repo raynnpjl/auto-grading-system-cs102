@@ -11,7 +11,7 @@ import java.util.Map;
  * One student's line in a {@link ProgressSnapshot}.
  *
  * @param username    the student
- * @param status      queued, running, graded, needs-review or skipped
+ * @param status      where the student is in the run
  * @param finished    whether the student is done, graded or skipped
  * @param formatFixed whether the folder or headers were corrected automatically
  * @param scores      the marks of each question part graded so far, in question order
@@ -21,7 +21,7 @@ import java.util.Map;
  */
 public record StudentProgress(
         String username,
-        String status,
+        GradingStatus status,
         boolean finished,
         boolean formatFixed,
         Map<String, Double> scores,

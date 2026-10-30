@@ -30,6 +30,7 @@ public final class AttemptReportWriter {
     private static final String PDF = ".pdf";
     private static final String TEXT = ".txt";
     private static final String STUDENTS_FOLDER = "students";
+    private static final String SCORES_FILE = "scores.csv";
     private static final String UNSAFE_FILE_NAME_CHARACTERS = "[^A-Za-z0-9._-]";
 
     private final Path reportsRoot;
@@ -55,18 +56,14 @@ public final class AttemptReportWriter {
     /** Writes the attempt's summary and one report per student; a report that fails is listed as a problem. */
     public Written write(GradingAttempt attempt) {
         String baseId = attempt.startedAt().format(ATTEMPT_ID);
-        Path folder;
-        String attemptId;
-        try {
-            Files.createDirectories(reportsRoot);
-            folder = createUnique(baseId);
-            attemptId = folder.getFileName().toString().substring("attempt-".length());
-        } catch (IOException | RuntimeException exception) {
-            return new Written(Optional.empty(), baseId, List.of("The reports folder " + reportsRoot.toAbsolutePath()
-                    + " could not be created: " + Messages.describe(exception)));
-        }
-
         List<String> problems = new ArrayList<>();
+        Optional<Path> created = createAttemptFolder(baseId, problems);
+        if (created.isEmpty()) {
+            return new Written(Optional.empty(), baseId, problems);
+        }
+        Path folder = created.get();
+        String attemptId = folder.getFileName().toString().substring("attempt-".length());
+
         Map<StudentOutcome, String> reportFiles = new IdentityHashMap<>();
         Set<String> usedNames = new HashSet<>();
         Path students = folder.resolve(STUDENTS_FOLDER);
@@ -88,7 +85,24 @@ public final class AttemptReportWriter {
         } catch (IOException | RuntimeException exception) {
             problems.add("The attempt summary could not be written: " + Messages.describe(exception));
         }
+        try {
+            Files.writeString(folder.resolve(SCORES_FILE), ScoresCsv.format(attempt.scores()), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException exception) {
+            problems.add("The scores CSV could not be written: " + Messages.describe(exception));
+        }
         return new Written(Optional.of(folder), attemptId, problems);
+    }
+
+    // The attempt's own folder; empty, with the reason added to problems, when it cannot be created.
+    private Optional<Path> createAttemptFolder(String baseId, List<String> problems) {
+        try {
+            Files.createDirectories(reportsRoot);
+            return Optional.of(createUnique(baseId));
+        } catch (IOException | RuntimeException exception) {
+            problems.add("The reports folder " + reportsRoot.toAbsolutePath() + " could not be created: "
+                    + Messages.describe(exception));
+            return Optional.empty();
+        }
     }
 
     /**

@@ -88,14 +88,17 @@ public final class ScoreSheet {
         }
     }
 
-    private static List<CSVRecord> parse(String text) throws ScoreSheetException {
-        List<CSVRecord> records;
+    private static List<CSVRecord> records(String text) throws ScoreSheetException {
         try (CSVParser parser = CSVParser.parse(text, CSVFormat.DEFAULT)) {
-            records = parser.getRecords();
+            return parser.getRecords();
         } catch (IOException | UncheckedIOException | IllegalStateException exception) {
             throw new ScoreSheetException("The score sheet is not a valid CSV file: " + exception.getMessage(),
                     exception);
         }
+    }
+
+    private static List<CSVRecord> parse(String text) throws ScoreSheetException {
+        List<CSVRecord> records = records(text);
         if (records.isEmpty()) {
             throw new ScoreSheetException("The score sheet is empty. Choose the CSV exported from the LMS.");
         }

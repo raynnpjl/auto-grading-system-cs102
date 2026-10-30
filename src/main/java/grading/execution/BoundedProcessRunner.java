@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -43,30 +44,18 @@ final class BoundedProcessRunner implements ProcessRunner {
         Thread stdoutReader = Thread.ofPlatform().daemon().name("grading-stdout").start(stdout);
         Thread stderrReader = Thread.ofPlatform().daemon().name("grading-stderr").start(stderr);
         Set<ProcessHandle> descendants = new LinkedHashSet<>();
-        ProcessResult.Status status = ProcessResult.Status.EXITED;
+        Optional<ProcessResult.Status> outcome = Optional.empty();
         try {
             process.getOutputStream().close();
-            while (true) {
-                rememberDescendants(process, descendants);
-                if (stdout.overflow || stderr.overflow) {
-                    status = ProcessResult.Status.OUTPUT_LIMIT_EXCEEDED;
-                    break;
-                }
-                if (!process.isAlive()) {
-                    break;
-                }
-                long remaining = timeout.toNanos() - (System.nanoTime() - started);
-                if (remaining <= 0) {
-                    status = ProcessResult.Status.TIMED_OUT;
-                    break;
-                }
-                process.waitFor(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS)),
-                        TimeUnit.NANOSECONDS);
+            long deadline = started + timeout.toNanos();
+            while (outcome.isEmpty()) {
+                outcome = poll(process, descendants, stdout, stderr, deadline);
             }
         } finally {
             // cleanup also runs on caller interruption, and kills observed children after normal exit
             terminate(process, descendants);
         }
+        ProcessResult.Status status = outcome.orElseThrow();
         boolean terminated = status != ProcessResult.Status.EXITED;
         finishReader(stdoutReader, stdout, terminated);
         finishReader(stderrReader, stderr, terminated);
@@ -111,6 +100,27 @@ final class BoundedProcessRunner implements ProcessRunner {
         }
     }
 
+    /**
+     * Checks the process once, in this order: too much output, finished, out of time. Waits a moment and
+     * returns empty while it should keep running.
+     */
+    private Optional<ProcessResult.Status> poll(Process process, Set<ProcessHandle> descendants,
+            OutputCapture stdout, OutputCapture stderr, long deadline) throws IOException, InterruptedException {
+        rememberDescendants(process, descendants);
+        if (stdout.overflow || stderr.overflow) {
+            return Optional.of(ProcessResult.Status.OUTPUT_LIMIT_EXCEEDED);
+        }
+        if (!process.isAlive()) {
+            return Optional.of(ProcessResult.Status.EXITED);
+        }
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            return Optional.of(ProcessResult.Status.TIMED_OUT);
+        }
+        process.waitFor(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(POLL_MILLIS)), TimeUnit.NANOSECONDS);
+        return Optional.empty();
+    }
+
     private void rememberDescendants(Process process, Set<ProcessHandle> descendants) throws IOException {
         try (var children = process.descendants()) {
             children.forEach(descendants::add);
@@ -149,8 +159,7 @@ final class BoundedProcessRunner implements ProcessRunner {
         public void run() {
             try (input) {
                 byte[] buffer = new byte[FileTrees.BUFFER_BYTES];
-                int count;
-                while ((count = input.read(buffer)) != -1) {
+                for (int count = input.read(buffer); count != -1; count = input.read(buffer)) {
                     int available = limit - bytes.size();
                     bytes.write(buffer, 0, Math.min(available, count));
                     if (count > available) {
