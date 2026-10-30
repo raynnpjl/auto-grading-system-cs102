@@ -33,6 +33,7 @@ final class IdentityDialog {
     private static final double COLUMN_GAP = 12;
     private static final double ROW_GAP = 10;
 
+    
     private final IdentitySuggestions suggestions;
 
     IdentityDialog(IdentitySuggestions suggestions) {
