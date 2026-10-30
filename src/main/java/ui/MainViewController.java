@@ -1,6 +1,5 @@
 package ui;
 
-import grading.progress.ProgressServer;//xuan
 import grading.progress.ProgressTracker;//xuan
 import grading.assessment.AssessmentDefinition;
 import grading.common.Messages;
@@ -100,7 +99,7 @@ public final class MainViewController {
     private String scoreSheetProblem;
     private String scoreSheetReport = "";
     private final ProgressTracker progress = new ProgressTracker(); // xuan
-    private ProgressServer dashboard; // xuan
+
 
     @FXML
     private Button testerImportButton;
@@ -159,13 +158,6 @@ public final class MainViewController {
         // crashed.
         startWorker(workspaces::removeAbandoned, "workspace-cleanup", true);
 
-        // new
-        try {
-            dashboard = new ProgressServer(progress, 8080);
-            dashboard.start();
-        } catch (IOException exception) {
-            consoleStatus.setText("Dashboard unavailable: port 8080 is already in use");
-        }
     }
 
     @FXML
@@ -418,12 +410,6 @@ public final class MainViewController {
 
         //xuan
         closing = true;
-        if (dashboard != null) {
-            dashboard.stop();
-            dashboard = null;
-        }
-        closing = true;
-        //xuan
 
         if (gradingTask != null) {
             // the grading worker removes the copies once its processes have been terminated
