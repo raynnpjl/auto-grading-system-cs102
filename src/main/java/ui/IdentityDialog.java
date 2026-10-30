@@ -32,8 +32,8 @@ final class IdentityDialog {
     private static final double STUDENT_ROW_HEIGHT = 48;
     private static final double COLUMN_GAP = 12;
     private static final double ROW_GAP = 10;
+    private static final double CONTENT_PADDING = 4;
 
-    
     private final IdentitySuggestions suggestions;
 
     IdentityDialog(IdentitySuggestions suggestions) {
@@ -55,7 +55,7 @@ final class IdentityDialog {
         GridPane grid = new GridPane();
         grid.setHgap(COLUMN_GAP);
         grid.setVgap(ROW_GAP);
-        grid.setPadding(new Insets(4));
+        grid.setPadding(new Insets(CONTENT_PADDING));
         grid.addRow(0, new Label("Submission"), new Label("Verified username"), new Label("Student name"),
                 new Label("Student email"));
         Map<SubmissionValidationResult, IdentityFields> fields = new LinkedHashMap<>();
@@ -78,7 +78,7 @@ final class IdentityDialog {
                 "Original submissions will not be changed. Only normalized working copies are updated.");
         safetyNote.setWrapText(true);
         VBox content = new VBox(ROW_GAP, safetyNote, scrollPane, validationMessage);
-        content.setPadding(new Insets(4));
+        content.setPadding(new Insets(CONTENT_PADDING));
         dialog.getDialogPane().setContent(content);
         dialog.getDialogPane().getStylesheets().add(getClass().getResource("/ui/styles.css").toExternalForm());
 

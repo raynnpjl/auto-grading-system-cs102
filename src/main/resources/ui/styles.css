@@ -254,3 +254,56 @@
     -fx-text-fill: #b42318;
     -fx-font-weight: bold;
 }
+
+/* Results table, student details and similar answers */
+.results-split {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.status-running {
+    -fx-text-fill: #1f5fbf;
+    -fx-font-weight: bold;
+}
+
+.status-graded,
+.status-auto-fixed {
+    -fx-text-fill: #23744a;
+}
+
+.status-needs-review {
+    -fx-text-fill: #9a5b00;
+    -fx-font-weight: bold;
+}
+
+.status-skipped,
+.status-queued {
+    -fx-text-fill: #7a8698;
+}
+
+.flag {
+    -fx-text-fill: #a33a2c;
+    -fx-font-weight: bold;
+}
+
+.detail-pane {
+    -fx-background-color: white;
+}
+
+.detail-content {
+    -fx-padding: 12 14;
+}
+
+.detail-title {
+    -fx-font-weight: bold;
+    -fx-padding: 8 0 0 0;
+}
+
+.detail-subtitle {
+    -fx-font-weight: bold;
+    -fx-text-fill: #52637a;
+}
+
+.similarity-view {
+    -fx-padding: 8;
+}

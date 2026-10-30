@@ -19,11 +19,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
@@ -34,6 +34,7 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.DialogPane;
+import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import javafx.scene.paint.Color;
 import org.junit.jupiter.api.AfterAll;
@@ -94,6 +95,9 @@ class ScoreSheetWorkflowTest {
             controller.disableAutomaticIdentityPrompt();
             controller.useReportsFolder(temporary.resolve("reports"));
             new Scene(root, 1320, 920);
+            // Builds the tab skins, so the console inside the Activity tab can be looked up.
+            root.applyCss();
+            root.layout();
             return null;
         });
         testers = Files.createDirectory(temporary.resolve("testers"));
@@ -134,7 +138,7 @@ class ScoreSheetWorkflowTest {
     }
 
     @Test
-    void writesGradedTotalsIntoTheImportedSheetAfterConfirmation() throws Exception {
+    void savesAFilledCopyAndLeavesTheImportedSheetUnchanged() throws Exception {
         assertTrue(fx(() -> button("writeScoresButton").isDisabled()));
         fx(() -> { controller.importScoreSheet(sheet); return null; });
         assertTrue(console().contains("Score sheet: " + sheet.toAbsolutePath().normalize()), console());
@@ -142,27 +146,34 @@ class ScoreSheetWorkflowTest {
 
         grade();
         assertFalse(fx(() -> button("writeScoresButton").isDisabled()));
-        assertTrue(console().contains("Select Write scores to fill it with this run's totals."), console());
+        assertTrue(console().contains("Select Save filled sheet to save a copy filled with this run's totals."),
+                console());
 
-        fx(() -> { controller.writeScoresToSheet(preview -> false); return null; });
-        assertEquals(SHEET, Files.readString(sheet), "cancelling must not write anything");
+        Path filled = sheet.resolveSibling("ScoreSheet-graded.csv");
+        fx(() -> { controller.saveFilledSheet(preview -> false, () -> Optional.of(filled)); return null; });
+        assertFalse(Files.exists(filled), "cancelling must not write anything");
 
-        fx(() -> { controller.writeScoresToSheet(preview -> {
+        fx(() -> { controller.saveFilledSheet(preview -> {
             assertEquals(1, preview.entries().size());
             assertEquals(List.of("bob.absent.2024"), preview.noSubmission());
             return true;
-        }); return null; });
+        }, () -> Optional.of(filled)); return null; });
 
-        assertEquals(SHEET.replace("alice@smu.edu.sg,,20", "alice@smu.edu.sg,10.0,20"), Files.readString(sheet));
+        assertEquals(SHEET.replace("alice@smu.edu.sg,,20", "alice@smu.edu.sg,10.0,20"), Files.readString(filled));
+        assertEquals(SHEET, Files.readString(sheet), "the imported sheet is never changed");
         String report = console();
-        assertTrue(report.startsWith("Scores written to score sheet"), report);
+        assertTrue(report.startsWith("Filled score sheet saved"), report);
         assertTrue(report.contains("bob.absent.2024"), report);
         assertTrue(report.contains("Grading results"), report);
-        try (Stream<Path> files = Files.list(sheet.getParent())) {
-            Path backup = files.filter(file -> file.getFileName().toString().contains(".backup-"))
-                    .findFirst().orElseThrow();
-            assertEquals(SHEET, Files.readString(backup));
-        }
+    }
+
+    @Test
+    void savingRefusesToOverwriteTheOriginalSheet() throws Exception {
+        fx(() -> { controller.importScoreSheet(sheet); return null; });
+        grade();
+        fx(() -> { controller.saveFilledSheet(preview -> true, () -> Optional.of(sheet)); return null; });
+        assertEquals(SHEET, Files.readString(sheet));
+        assertTrue(fx(() -> ((Label) root.lookup("#consoleStatus")).getText()).contains("original sheet is kept"));
     }
 
     @Test
@@ -175,7 +186,7 @@ class ScoreSheetWorkflowTest {
         grade();
         assertTrue(fx(() -> button("writeScoresButton").isDisabled()), "no valid sheet imported");
         assertTrue(console().startsWith("Score sheet not imported"), "the reason stays visible: " + console());
-        assertTrue(console().contains("Write scores stays unavailable"), console());
+        assertTrue(console().contains("Save filled sheet stays unavailable"), console());
         fx(() -> { controller.importScoreSheet(sheet); return null; });
         assertFalse(fx(() -> button("writeScoresButton").isDisabled()));
 
@@ -198,7 +209,7 @@ class ScoreSheetWorkflowTest {
                 assertFalse(button.isDisabled(), type.getText());
             }
             Button write = (Button) pane.lookupButton(pane.getButtonTypes().getFirst());
-            assertEquals("Write scores", write.getText());
+            assertEquals("Save filled sheet", write.getText());
             assertEquals(Color.web("#2e686a"), write.getBackground().getFills().getFirst().getFill());
             return null;
         });
@@ -209,12 +220,8 @@ class ScoreSheetWorkflowTest {
         await(() -> !button("testerImportButton").isDisabled());
         fx(() -> { controller.importSubmissions(student); return null; });
         await(() -> !button("submissionImportButton").isDisabled());
-        try {
-            fx(() -> { button("runGradingButton").fire(); return null; });
-            await(() -> !button("runGradingButton").isDisabled());
-        } finally {
-            fx(() -> { controller.shutdown(); return null; });
-        }
+        fx(() -> { button("runGradingButton").fire(); return null; });
+        await(() -> !controller.isGrading());
     }
 
     private String console() throws Exception {

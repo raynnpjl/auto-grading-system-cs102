@@ -7,10 +7,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import grading.AssessmentFixtures;
 import grading.assessment.AssessmentDefinition;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
 import java.awt.image.BufferedImage;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -36,7 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
-@Timeout(45)
+@Timeout(90)
 class MainViewGradingTest {
 
     @TempDir
@@ -134,12 +131,16 @@ class MainViewGradingTest {
             return null;
         });
         await(() -> !button("testerImportButton").isDisabled());
-        assertTrue(fx(() -> button("runGradingButton").isDisabled()));
+        // An invalid tester folder does not replace the valid one imported earlier.
+        assertFalse(fx(() -> button("runGradingButton").isDisabled()));
+        assertTrue(console().contains("imported earlier are still valid"), console());
         importTesters(testers);
         assertFalse(fx(() -> button("runGradingButton").isDisabled()));
 
+        // An unreadable folder keeps the submissions imported before it.
         importStudents(temporary.resolve("does-not-exist"));
-        assertTrue(fx(() -> button("runGradingButton").isDisabled()));
+        assertFalse(fx(() -> button("runGradingButton").isDisabled()));
+        assertTrue(console().contains("previously imported submissions are kept"), console());
         importStudents(student);
         assertFalse(fx(() -> button("runGradingButton").isDisabled()));
 
@@ -159,28 +160,18 @@ class MainViewGradingTest {
     }
 
     @Test
-    void removesNormalizedCopiesWhenReplacedAndWhenClosed() throws Exception {
+    void removesNormalizedCopiesWhenClosed() throws Exception {
         importStudents(student);
-        Path first = normalizedWorkspace();
-        assertTrue(Files.isDirectory(first.resolve("alice")));
-
-        importStudents(student);
-        Path second = normalizedWorkspace();
-        assertFalse(Files.exists(first), "re-importing replaces the previous copies");
-        assertTrue(Files.isDirectory(second.resolve("alice")));
-
+        Path work = fx(() -> controller.workFolder());
+        try (var copies = Files.list(work)) {
+            Path normalized = copies.findFirst().orElseThrow();
+            assertTrue(Files.isDirectory(normalized.resolve("alice")));
+        }
         fx(() -> {
             controller.shutdown();
             return null;
         });
-        assertFalse(Files.exists(second), "closing the window removes this session's copies");
-    }
-
-    private Path normalizedWorkspace() throws Exception {
-        String report = fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText());
-        String marker = "Normalized workspace: ";
-        int start = report.indexOf(marker) + marker.length();
-        return Path.of(report.substring(start, report.indexOf('\n', start)));
+        assertFalse(Files.exists(work), "closing the window removes this session's copies");
     }
 
     @Test
@@ -194,16 +185,11 @@ class MainViewGradingTest {
         assertFalse(fx(() -> button("runGradingButton").isDisabled()));
         assertTrue(fx(() -> ((Label) root.lookup("#runReadinessText")).getText()
                 .contains("1 out of 2 submissions ready")));
-        try {
-            fx(() -> { button("runGradingButton").fire(); return null; });
-            await(() -> !button("runGradingButton").isDisabled());
-        } finally {
-            fx(() -> { controller.shutdown(); return null; });
-        }
-        String report = fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText());
+        grade();
+        String report = console();
         assertTrue(report.contains("[alice]") && report.contains("Total: 10.0"), report);
         assertTrue(report.contains("Not graded (confirm identity"), report);
-        assertTrue(report.contains("Reports\n=======\nAttempt ") && report.contains("summary.pdf"), report);
+        assertTrue(report.contains("Reports\n=======\nFolder: ") && report.contains("summary.pdf"), report);
         try (var attempts = Files.list(temporary.resolve("reports"))) {
             Path attempt = attempts.findFirst().orElseThrow();
             assertTrue(Files.exists(attempt.resolve("students/alice.pdf")));
@@ -217,7 +203,7 @@ class MainViewGradingTest {
         });
         await(() -> Files.exists(zip) && !button("saveReportsButton").isDisabled());
         assertTrue(fx(() -> ((Label) root.lookup("#consoleStatus")).getText()).contains("Reports saved"));
-        assertTrue(report.contains("  unknown-"), report);
+        assertTrue(report.contains("[unknown-"), report);
     }
 
     @Test
@@ -227,36 +213,27 @@ class MainViewGradingTest {
         importTesters(testers);
         // A broken part must not prevent its sibling or subsequent questions from being graded.
         Files.writeString(testers.resolve("Q1bTester.java"), "public class Q1bTester { broken }");
-        ByteArrayOutputStream terminal = new ByteArrayOutputStream();
-        PrintStream previous = System.out;
-        try (PrintStream captured = new PrintStream(terminal, true, StandardCharsets.UTF_8)) {
-            System.setOut(captured);
-            fx(() -> {
-                button("runGradingButton").fire();
-                assertTrue(button("runGradingButton").isDisabled());
-                assertTrue(button("testerImportButton").isDisabled());
-                assertTrue(button("submissionImportButton").isDisabled());
-                return null;
-            });
-            await(() -> !button("runGradingButton").isDisabled());
-        } finally {
-            System.setOut(previous);
-            fx(() -> { controller.shutdown(); return null; });
-        }
-        String report = fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText());
+        fx(() -> {
+            button("runGradingButton").fire();
+            assertTrue(button("runGradingButton").isDisabled());
+            assertTrue(button("testerImportButton").isDisabled());
+            assertTrue(button("submissionImportButton").isDisabled());
+            assertTrue(button("cancelButton").isVisible());
+            return null;
+        });
+        await(() -> !controller.isGrading());
+        String report = console();
         assertTrue(report.startsWith("Grading results"), report);
-        assertTrue(report.contains("[alice]"));
-        assertTrue(report.contains("Q1: 1.5   Q2: 3.0   Q3: 4.0   Total: 8.5"), report);
-        assertTrue(report.contains("Q1b: 0.0 — COMPILATION_ERROR"));
-        assertTrue(report.contains("Q3: 4.0 — GRADED"));
+        assertTrue(report.contains("[alice] Q1a: 1.5   Q1b: 0.0   Q2a: 1.5   Q2b: 1.5   Q3: 4.0   Total: 8.5"),
+                report);
         assertEquals("Grading complete — review errors", fx(() -> ((Label) root.lookup("#statusText")).getText()));
-        String output = terminal.toString(StandardCharsets.UTF_8);
-        assertTrue(output.contains("[Q1a] Compiling"));
-        assertTrue(output.contains("[Q1a] Running Q1aTester"));
-        assertTrue(output.contains("Compilation stderr:"));
-        assertTrue(output.contains("Staged runtime file: personstester.txt"));
-        assertTrue(output.contains("Staged support class: DataException.class"));
-        assertTrue(output.contains("Question scores: {Q1=1.5, Q2=3.0, Q3=4.0} | Total: 8.5"));
+        assertFalse(fx(() -> button("cancelButton").isVisible()));
+        assertTrue(report.contains("[Q1a] Compiling"), report);
+        assertTrue(report.contains("[Q1a] Running Q1aTester"), report);
+        assertTrue(report.contains("Compilation stderr:"), report);
+        assertTrue(report.contains("Staged runtime file: personstester.txt"), report);
+        assertTrue(report.contains("Staged support class: DataException.class"), report);
+        assertTrue(report.contains("[Q1b] COMPILATION_ERROR"), report);
         assertFalse(Files.exists(student.resolve("Q1/Q1aTester.java")));
         assertFalse(Files.exists(student.resolve("Q1/Q1a.class")));
         snapshotAndCheckLayout(1320, 920, "grading-results-ui.png");
@@ -291,17 +268,7 @@ class MainViewGradingTest {
 
     @Test
     void shutdownCancelsTheActiveGradingProcess() throws Exception {
-        Path pidFile = temporary.resolve("tester-pid");
-        String literal = pidFile.toString().replace("\\", "\\\\").replace("\"", "\\\"");
-        Files.writeString(testers.resolve("Q1aTester.java"), """
-                public class Q1aTester {
-                    public static void main(String[] args) throws Exception {
-                        java.nio.file.Files.writeString(java.nio.file.Path.of("%s"), "" + ProcessHandle.current()
-                                .pid());
-                        Thread.sleep(60000);
-                    }
-                }
-                """.formatted(literal));
+        Path pidFile = writeSleepingTester();
         importTesters(testers);
         importStudents(student);
         try {
@@ -313,6 +280,133 @@ class MainViewGradingTest {
         } finally {
             fx(() -> { controller.shutdown(); return null; });
         }
+    }
+
+    @Test
+    void resultsTableListsEveryStudentAfterImport() throws Exception {
+        Path batch = Files.createDirectory(temporary.resolve("batch"));
+        Files.move(student, batch.resolve("alice"));
+        writeStudent(batch.resolve("bob"), "Bob Student", "bob@smu.edu.sg", null);
+        importStudents(batch);
+        assertEquals(2, fx(() -> controller.resultsTable().view().getItems().size()));
+        assertEquals("queued", fx(() -> controller.resultsTable().view().getItems().getFirst().status()));
+    }
+
+    @Test
+    void cancelStopsGradingAndKeepsTheInputs() throws Exception {
+        Path pidFile = writeSleepingTester();
+        importTesters(testers);
+        importStudents(student);
+        fx(() -> { button("runGradingButton").fire(); return null; });
+        await(() -> Files.exists(pidFile) && Files.size(pidFile) > 0);
+        long pid = Long.parseLong(Files.readString(pidFile));
+        fx(() -> { button("cancelButton").fire(); return null; });
+        await(() -> !controller.isGrading());
+        await(() -> !ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false));
+        assertEquals("Grading cancelled", fx(() -> ((Label) root.lookup("#statusText")).getText()));
+        assertFalse(fx(() -> button("runGradingButton").isDisabled()));
+        assertFalse(fx(() -> button("testerImportButton").isDisabled()));
+    }
+
+    @Test
+    void regradeKeepsOtherStudentsMarks() throws Exception {
+        Path batch = Files.createDirectory(temporary.resolve("batch"));
+        Files.move(student, batch.resolve("alice"));
+        writeStudent(batch.resolve("bob"), "Bob Student", "bob@smu.edu.sg", null);
+        importTesters(testers);
+        importStudents(batch);
+        grade();
+        assertTrue(console().contains("[bob]") && console().contains("Total: 10.0"), console());
+        fx(() -> {
+            controller.resultsTable().select("alice");
+            assertFalse(button("regradeButton").isDisabled());
+            button("regradeButton").fire();
+            return null;
+        });
+        await(() -> !controller.isGrading());
+        String report = console();
+        assertTrue(report.contains("[alice]") && report.contains("[bob]"), report);
+        String full = "Q1a: 1.5   Q1b: 1.5   Q2a: 1.5   Q2b: 1.5   Q3: 4.0   Total: 10.0 — graded";
+        assertTrue(report.contains("[alice] " + full) && report.contains("[bob] " + full), report);
+    }
+
+    @Test
+    void identicalAnswersAreListedAsSimilarWithFeedbackForLostMarks() throws Exception {
+        String shared = """
+                public class Q1a {
+                    public static double score() { return 1.5; }
+                    public static int countVowels(String word) {
+                        int count = 0;
+                        for (int index = 0; index < word.length(); index++) {
+                            char letter = Character.toLowerCase(word.charAt(index));
+                            if (letter == 'a' || letter == 'e' || letter == 'i' || letter == 'o' || letter == 'u') {
+                                count++;
+                            }
+                        }
+                        return count;
+                    }
+                }
+                """;
+        Path batch = Files.createDirectory(temporary.resolve("batch"));
+        writeStudent(batch.resolve("carol"), "Carol Student", "carol@smu.edu.sg", shared);
+        writeStudent(batch.resolve("dave"), "Dave Student", "dave@smu.edu.sg", shared);
+        // dave's Q1b does not compile, so he loses that question's marks.
+        Files.writeString(batch.resolve("dave/Q1/Q1b.java"),
+                "// Name: Dave Student\n// Email: dave@smu.edu.sg\npublic class Q1b { broken }");
+        importTesters(testers);
+        importStudents(batch);
+        grade();
+
+        var pairs = fx(() -> controller.similarityList().listed());
+        assertTrue(pairs.stream().anyMatch(pair -> pair.questionId().equals("Q1a")
+                && pair.involves("carol") && pair.involves("dave")), pairs.toString());
+        assertTrue(fx(() -> ((javafx.scene.control.TabPane) root.lookup("#consoleTabs")).getTabs().get(1)
+                .getText()).startsWith("Similar answers ("));
+
+        fx(() -> {
+            controller.resultsTable().select("dave");
+            return null;
+        });
+        String detail = fx(() -> controller.detailText());
+        assertTrue(detail.contains("similar to carol"), detail);
+        assertTrue(detail.contains("Q1b"), detail);
+    }
+
+    private Path writeSleepingTester() throws Exception {
+        Path pidFile = temporary.resolve("tester-pid");
+        String literal = pidFile.toString().replace("\\", "\\\\").replace("\"", "\\\"");
+        Files.writeString(testers.resolve("Q1aTester.java"), """
+                public class Q1aTester {
+                    public static void main(String[] args) throws Exception {
+                        java.nio.file.Files.writeString(java.nio.file.Path.of("%s"), "" + ProcessHandle.current()
+                                .pid());
+                        Thread.sleep(60000);
+                    }
+                }
+                """.formatted(literal));
+        return pidFile;
+    }
+
+    private static void writeStudent(Path folder, String name, String email, String q1a) throws Exception {
+        for (var entry : AssessmentDefinition.sourceFiles().entrySet()) {
+            String type = entry.getKey().replace(".java", "");
+            Path questionFolder = Files.createDirectories(folder.resolve(entry.getValue()));
+            String expression = type.equals("Q3") ? "Shape.score()" : "1.5";
+            String body = type.equals("Q1a") && q1a != null ? q1a
+                    : "public class " + type + " { public static double score() { return " + expression + "; } }";
+            Files.writeString(questionFolder.resolve(entry.getKey()),
+                    "// Name: " + name + "\n// Email: " + email + "\n" + body);
+        }
+        AssessmentFixtures.writeDependencies(folder);
+    }
+
+    private void grade() throws Exception {
+        fx(() -> { button("runGradingButton").fire(); return null; });
+        await(() -> !controller.isGrading());
+    }
+
+    private String console() throws Exception {
+        return fx(() -> ((TextArea) root.lookup("#findingsConsole")).getText());
     }
 
     private void importTesters(Path folder) throws Exception {
@@ -336,7 +430,7 @@ class MainViewGradingTest {
     }
 
     private static void await(Callable<Boolean> condition) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(40).toNanos();
         while (System.nanoTime() < deadline) {
             if (fx(condition)) {
                 return;

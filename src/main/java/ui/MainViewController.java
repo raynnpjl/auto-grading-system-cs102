@@ -1,105 +1,105 @@
 package ui;
 
-import grading.progress.ProgressTracker;//xuan
 import grading.assessment.AssessmentDefinition;
+import grading.common.FileTrees;
 import grading.common.Messages;
 import grading.config.GradingSettings;
-import grading.execution.JavaGradingService;
-import grading.execution.QuestionGradingResult;
-import grading.execution.StudentGradingResult;
+import grading.progress.ProgressSnapshot;
+import grading.progress.ProgressTracker;
+import grading.progress.StudentProgress;
 import grading.reporting.AttemptReportWriter;
-import grading.reporting.GradingAttempt;
-import grading.reporting.GradingReportFormatter;
 import grading.reporting.ReportArchive;
 import grading.reporting.ScoreSheet;
 import grading.reporting.ScoreSheetPreview;
-import grading.reporting.ScoreSheetReportFormatter;
 import grading.reporting.ScoreSheetUpdater;
-import grading.reporting.ValidationReportFormatter;
-import grading.scoring.ScoreBreakdown;
-import grading.scoring.ScoreSummary;
-import grading.style.StyleChecker;
+import grading.session.GradingSession;
+import grading.session.SessionRefusal;
 import grading.submission.IdentitySuggestions;
 import grading.submission.StudentIdentity;
-import grading.submission.SubmissionCorrectionService;
 import grading.submission.SubmissionFinding;
-import grading.submission.SubmissionPreparationService;
 import grading.submission.SubmissionValidationResult;
-import grading.submission.SubmissionWorkspaces;
-import grading.tester.TesterFileValidationService;
 import grading.tester.TesterValidationResult;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.application.HostServices;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.fxml.FXML;
+import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.control.Tab;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
+import javafx.util.Duration;
 
 /**
- * Handles the main window's actions: importing testers, submissions and the
- * score sheet, running
- * grading in the background, and showing what was found. The work itself is
- * done by the grading
- * services, and the reports are formatted by the reporting classes.
+ * Connects the main window to the marker's {@link GradingSession}: importing testers, submissions and
+ * the score sheet, starting, cancelling and regrading, and showing the session's progress. All grading
+ * state lives in the session; this class only shows it and passes on what the marker asks for.
  */
 public final class MainViewController {
 
-    private final GradingSettings settings = GradingSettings.current();
-    private final SubmissionPreparationService submissionService = new SubmissionPreparationService(settings);
-    private final SubmissionCorrectionService correctionService = new SubmissionCorrectionService(submissionService);
-    private final TesterFileValidationService testerService = new TesterFileValidationService(settings);
-    private final IdentityDialog identityDialog = new IdentityDialog(IdentitySuggestions.fromSettings());
-    private final GradingLog gradingLog = new GradingLog(settings.maxLogCharacters());
-    private final SubmissionWorkspaces workspaces = SubmissionWorkspaces.fromSettings();
-    private volatile boolean closing;
-    private Path reportsFolder = settings.reportsFolder();
-    // The latest grading attempt's report folder and id, kept until the next
-    // grading run.
-    private Path latestReports;
-    private String latestAttemptId;
+    private static final Logger LOG = Logger.getLogger(MainViewController.class.getName());
+    private static final Duration POLL_INTERVAL = Duration.millis(250);
+    private static final String WORK_FOLDER_PREFIX = "auto-grader-";
+    private static final String GRADED_SHEET_SUFFIX = "-graded.csv";
+    private static final String SECONDS_FORMAT = "%d:%02d";
+    private static final int SECONDS_PER_MINUTE = 60;
+    // How long closing the window waits for a cancelled run to stop its processes before deleting files.
+    private static final long SHUTDOWN_WAIT_MILLIS = 30_000;
+    private static final long SHUTDOWN_POLL_MILLIS = 50;
+
+    private GradingSettings settings = GradingSettings.current();
+    private final ProgressTracker progress = new ProgressTracker();
+    private final IdentityDialog identityDialog =
+            new IdentityDialog(new IdentitySuggestions(settings.emailDomain()));
+    private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
+    private final Timeline poller = new Timeline(new KeyFrame(POLL_INTERVAL, event -> pollProgress()));
+    private ResultsTable resultsTable;
+    private StudentDetailPane detailPane;
+    private SimilarityList similarityList;
+    private HostServices hostServices;
+
+    private Path workFolder;
+    private GradingSession session;
+    private List<SubmissionValidationResult> submissions = List.of();
+    private boolean inputTaskRunning;
+    private boolean runInProgress;
+    private boolean testerImported;
+    private boolean submissionsImported;
+    private boolean identityPromptOffered;
+    private boolean identityPromptEnabled = true;
+    private ScoreSheet scoreSheet;
+    // Why the last score sheet import failed; kept on screen until a sheet is imported.
+    private String scoreSheetProblem;
     private String testerReport = "";
     private String submissionReport = "";
     private String gradingReport = "";
-    private TesterValidationResult latestTesterResult;
-    private Task<GradingRun> gradingTask;
-    private boolean inputTaskRunning;
-    private List<SubmissionValidationResult> latestSubmissionResults = List.of();
-    private Path latestSubmissionWorkspace;
-    private Path latestSubmissionSource;
-    private boolean identityPromptOffered;
-    private boolean identityPromptEnabled = true;
-    private boolean testerImported;
-    private boolean submissionsImported;
-    private long readySubmissionCount;
-    private long totalSubmissionCount;
-    private final ScoreSheetUpdater scoreSheetUpdater = new ScoreSheetUpdater();
-    private ScoreSummary latestScores;
-    private ScoreSheet scoreSheet;
-    // Why the last score sheet import failed; kept on screen until a sheet is
-    // imported.
-    private String scoreSheetProblem;
     private String scoreSheetReport = "";
-    private final ProgressTracker progress = new ProgressTracker(); // xuan
-
 
     @FXML
     private Button testerImportButton;
@@ -144,6 +144,21 @@ public final class MainViewController {
     private Button runGradingButton;
 
     @FXML
+    private VBox progressBox;
+
+    @FXML
+    private ProgressBar gradingProgress;
+
+    @FXML
+    private Label progressText;
+
+    @FXML
+    private Button cancelButton;
+
+    @FXML
+    private Button regradeButton;
+
+    @FXML
     private Button scoreSheetImportButton;
 
     @FXML
@@ -153,11 +168,47 @@ public final class MainViewController {
     private Button saveReportsButton;
 
     @FXML
-    private void initialize() {
-        // Removes normalized copies left behind by sessions that have closed or
-        // crashed.
-        startWorker(workspaces::removeAbandoned, "workspace-cleanup", true);
+    private StackPane resultsHolder;
 
+    @FXML
+    private StackPane detailHolder;
+
+    @FXML
+    private StackPane similarityHolder;
+
+    @FXML
+    private Tab similarityTab;
+
+    @FXML
+    private void initialize() {
+        resultsTable = new ResultsTable(this::regrade);
+        detailPane = new StudentDetailPane(this::openReport);
+        similarityList = new SimilarityList(username -> resultsTable.select(username));
+        resultsHolder.getChildren().add(resultsTable.view());
+        detailHolder.getChildren().add(detailPane.view());
+        similarityHolder.getChildren().add(similarityList.view());
+        resultsTable.view().getSelectionModel().selectedItemProperty()
+                .addListener((property, before, after) -> {
+                    showDetail();
+                    updateButtons();
+                });
+        poller.setCycleCount(Animation.INDEFINITE);
+        updateSimilarityTab();
+
+        try {
+            workFolder = Files.createTempDirectory(WORK_FOLDER_PREFIX);
+            session = new GradingSession(settings, progress, workFolder);
+        } catch (IOException exception) {
+            findingsConsole.setText("The temporary work folder could not be created: "
+                    + Messages.describe(exception) + "\nFree some disk space, then restart the application.");
+            testerImportButton.setDisable(true);
+            submissionImportButton.setDisable(true);
+        }
+    }
+
+    /** Lets the controller open report files in the system's PDF viewer. */
+    void useHostServices(HostServices services) {
+        hostServices = services;
     }
 
     @FXML
@@ -165,50 +216,31 @@ public final class MainViewController {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Select Tester-Files folder");
         File selected = chooser.showDialog(testerImportButton.getScene().getWindow());
-        if (selected == null) {
-            return;
+        if (selected != null) {
+            importTesterFiles(selected.toPath());
         }
-
-        importTesterFiles(selected.toPath());
     }
 
     void importTesterFiles(Path source) {
         if (isBusy()) {
             return;
         }
-        inputTaskRunning = true;
-        latestTesterResult = null;
-        clearGradingReport();
         testerFolderField.setText(source.toAbsolutePath().toString());
-        updateReadiness();
         statusText.setText("Validating tester files");
         consoleStatus.setText("Tester validation in progress");
-
-        Task<TesterValidationResult> task = new Task<>() {
-            @Override
-            protected TesterValidationResult call() throws IOException {
-                return testerService.validate(source);
-            }
-        };
-        task.setOnSucceeded(event -> {
-            inputTaskRunning = false;
-            showTesterResult(task.getValue());
-        });
-        task.setOnFailed(event -> {
-            inputTaskRunning = false;
-            testerImported = true;
-            testerReport = "Tester-file validation failed\n"
-                    + "=============================\n"
-                    + Messages.describe(task.getException())
-                    + "\n  Next step for marker: Confirm that the selected folder is readable and contains "
-                    + "the official tester sources, then import it again.\n";
-            refreshReports();
-            statusText.setText("Validation failed");
-            consoleStatus.setText("Tester import not completed");
-            updateReadiness();
-        });
-
-        startWorker(task, "tester-file-validator", true);
+        runInBackground(() -> session.importTesters(source), "tester-file-validator", this::showTesterResult,
+                failure -> {
+                    testerImported = true;
+                    testerReport = "Tester-file validation failed\n"
+                            + "=============================\n"
+                            + Messages.describe(failure)
+                            + "\n  Next step for marker: Confirm that the selected folder is readable and contains "
+                            + "the official tester sources, then import it again.\n"
+                            + keptTestersNote();
+                    refreshConsole();
+                    statusText.setText("Validation failed");
+                    consoleStatus.setText("Tester import not completed");
+                });
     }
 
     @FXML
@@ -216,228 +248,258 @@ public final class MainViewController {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Select student submissions folder");
         File selected = chooser.showDialog(submissionImportButton.getScene().getWindow());
-        if (selected == null) {
-            return;
+        if (selected != null) {
+            importSubmissions(selected.toPath());
         }
-
-        importSubmissions(selected.toPath());
     }
 
     void importSubmissions(Path source) {
         if (isBusy()) {
             return;
         }
-        inputTaskRunning = true;
-        latestSubmissionResults = List.of();
-        Path previousWorkspace = latestSubmissionWorkspace;
-        latestSubmissionWorkspace = null;
-        clearGradingReport();
         submissionFolderField.setText(source.toAbsolutePath().toString());
-        latestSubmissionSource = source.toAbsolutePath();
         identityPromptOffered = false;
-        readySubmissionCount = 0;
-        totalSubmissionCount = 0;
-        updateReadiness();
-        updateResolveIssuesButton();
         statusText.setText("Validating submissions");
         consoleStatus.setText("Validation in progress");
-
-        Task<ImportedSubmissions> task = new Task<>() {
-            @Override
-            protected ImportedSubmissions call() throws IOException {
-                // The previous import's copies are replaced, so they are no longer needed.
-                workspaces.delete(previousWorkspace);
-                Path workspace = workspaces.create();
-                try {
-                    return new ImportedSubmissions(submissionService.prepareBatch(source, workspace), workspace);
-                } catch (IOException | RuntimeException failure) {
-                    workspaces.delete(workspace);
-                    throw failure;
-                }
-            }
-        };
-        task.setOnSucceeded(event -> {
-            inputTaskRunning = false;
-            showResults(task.getValue().results(), task.getValue().workspace());
-        });
-        task.setOnFailed(event -> {
-            inputTaskRunning = false;
-            Throwable failure = task.getException();
-            submissionsImported = true;
-            submissionReport = "Submission validation failed\n"
-                    + "============================\n"
-                    + Messages.describe(failure)
-                    + "\n  Next step for marker: Confirm that the selected folder is readable, repair or "
-                    + "re-extract it if necessary, then import it again.\n\n"
-                    + "No source files were changed.\n";
-            refreshReports();
-            statusText.setText("Validation failed");
-            consoleStatus.setText("Import not completed");
-            updateReadiness();
-        });
-
-        startWorker(task, "submission-validator", true);
+        runInBackground(() -> session.importSubmissions(source), "submission-validator", this::showSubmissions,
+                failure -> {
+                    submissionsImported = true;
+                    submissionReport = "Submission validation failed\n"
+                            + "============================\n"
+                            + Messages.describe(failure)
+                            + "\n  Next step for marker: Confirm that the selected folder is readable, repair or "
+                            + "re-extract it if necessary, then import it again.\n\n"
+                            + "No source files were changed."
+                            + (submissions.isEmpty() ? "" : " The previously imported submissions are kept.")
+                            + "\n";
+                    refreshConsole();
+                    statusText.setText("Validation failed");
+                    consoleStatus.setText("Import not completed");
+                });
     }
 
     @FXML
     private void runGrading() {
-        if (isBusy() || !inputsReady()) {
+        long ready = submissions.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
+        startRun(session::startGrading, "Grading " + ready + " students");
+    }
+
+    @FXML
+    private void regradeSelected() {
+        resultsTable.selected().map(StudentProgress::username).ifPresent(this::regrade);
+    }
+
+    private void regrade(String username) {
+        startRun(() -> session.regrade(username), "Regrading " + username);
+    }
+
+    @FXML
+    private void cancelGrading() {
+        try {
+            session.cancelGrading();
+            consoleStatus.setText("Cancelling: stopping the running programs");
+        } catch (SessionRefusal refusal) {
+            consoleStatus.setText(refusal.getMessage());
+        }
+    }
+
+    /** Whether a grading run is still going on. */
+    boolean isGrading() {
+        return runInProgress;
+    }
+
+    private void startRun(Runnable start, String description) {
+        if (isBusy() || session == null) {
             return;
         }
-        List<SubmissionValidationResult> submissions = List.copyOf(latestSubmissionResults);
-        List<String> skipped = submissions.stream()
-                .filter(Predicate.not(SubmissionValidationResult::isReadyForGrading))
-                .map(SubmissionValidationResult::username)
-                .toList();
-        int gradable = submissions.size() - skipped.size();
-        TesterValidationResult testers = latestTesterResult;
-        Path workspace = latestSubmissionWorkspace;
-        Path submissionsFolder = latestSubmissionSource;
-        Path reportsFolder = this.reportsFolder;
-        latestReports = null;
-        clearGradingReport();
-        gradingTask = new Task<>() {
-            @Override
-            protected GradingRun call() throws IOException, InterruptedException {
-                Consumer<String> log = message -> {
-                    System.out.println(message);
-                    progress.log(message); 
-                };
-                LocalDateTime started = LocalDateTime.now();
-                // List<StudentGradingResult> results = new
-                // JavaGradingService(log).gradeBatch(submissions, testers);
-                List<StudentGradingResult> results = new JavaGradingService(log, progress).gradeBatch(submissions,
-                        testers); // xuan
-                log.accept("Checking style against the CS102 Java Coding Style guide.");
-                GradingAttempt attempt = GradingAttempt.assemble(started, testers.source(), submissionsFolder,
-                        settings, submissions, results, new StyleChecker(settings.style()));
-                log.accept("Writing the reports for this attempt.");
-                return new GradingRun(results, attempt, new AttemptReportWriter(reportsFolder).write(attempt));
-            }
-        };
-        Task<GradingRun> task = gradingTask;
-        task.setOnSucceeded(event -> {
-            progress.finish(); //xuan
-            gradingTask = null;
-            updateReadiness();
-            GradingRun run = task.getValue();
-            List<StudentGradingResult> results = run.results();
-            long failedParts = results.stream().flatMap(student -> student.questions().stream())
-                    .filter(question -> question.status() != QuestionGradingResult.Status.GRADED).count();
-            latestReports = run.reports().folder().orElse(null);
-            latestAttemptId = run.reports().attemptId();
-            latestScores = new ScoreSummary(run.attempt().scores().stream()
-                    .map(ScoreBreakdown::toStudentScore)
-                    .toList());
-            gradingReport = GradingReportFormatter.format(results, skipped) + reportLocation(run.reports())
-                    + "\nProcess log\n===========\n" + gradingLog.text() + "\n";
-            scoreSheetReport = scoreSheetStatus();
-            updateWriteScoresButton();
-            refreshReports();
-            boolean clean = failedParts == 0 && skipped.isEmpty();
-            statusText.setText(clean ? "Grading complete" : "Grading complete — review errors");
-            consoleStatus.setText("Students graded: " + results.size() + " | Skipped: " + skipped.size()
-                    + " | Parts with errors: " + failedParts);
-            System.out.println("Grading complete: " + results.size() + " students, " + skipped.size()
-                    + " skipped, " + failedParts + " parts with errors.");
-        });
-        task.setOnFailed(event -> {
-            progress.finish(); //xuan
-            gradingTask = null;
-            updateReadiness();
-            String message = "Grading failed: " + Messages.describe(task.getException());
-            gradingReport = message + "\n\n" + gradingLog.text() + "\n";
-            refreshReports();
-            statusText.setText("Grading failed");
-            consoleStatus.setText("Review the process log, then retry");
-            System.err.println(message);
-        });
-        task.setOnCancelled(event -> {
-            progress.finish(); //xuan
-            gradingTask = null;
-            updateReadiness();
-            System.out.println("Grading cancelled.");
-        });
-        updateReadiness();
+        try {
+            start.run();
+        } catch (SessionRefusal refusal) {
+            consoleStatus.setText(refusal.getMessage());
+            return;
+        }
+        runInProgress = true;
+        gradingReport = "";
         statusText.setText("Grading in progress");
-        consoleStatus.setText("Grading " + gradable + " students");
-        String start = "Starting grading for " + gradable + " students"
-                + (skipped.isEmpty() ? "." : "; skipping " + skipped.size() + " with unconfirmed identity.");
-        appendGradingLog(start);
-        System.out.println(start);
-        // Keep the worker alive on application exit until interrupted process cleanup
-        // has finished,
-        // then remove the normalized copies it was grading.
-        startWorker(() -> {
-            try {
-                task.run();
-            } finally {
-                if (closing) {
-                    workspaces.delete(workspace);
-                }
-            }
-        }, "grading-runner", false);
+        consoleStatus.setText(description);
+        gradingProgress.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
+        progressText.setText("Starting");
+        setVisible(progressBox, true);
+        setVisible(cancelButton, true);
+        updateButtons();
+        poller.play();
     }
 
-    private static String reportLocation(AttemptReportWriter.Written reports) {
-        StringBuilder text = new StringBuilder("\nReports\n=======\n");
-        reports.folder().ifPresentOrElse(
-                folder -> text.append("Attempt ").append(reports.attemptId()).append(": ")
-                        .append(AttemptReportWriter.summaryOf(folder).toAbsolutePath()).append('\n'),
-                () -> text.append("The reports could not be written.\n"));
-        reports.problems().forEach(problem -> text.append("  ").append(problem).append('\n'));
-        return text.toString();
+    private void pollProgress() {
+        ProgressSnapshot snapshot = progress.snapshot();
+        showSnapshot(snapshot);
+        if (session.grading()) {
+            gradingProgress.setProgress(snapshot.total() == 0
+                    ? ProgressBar.INDETERMINATE_PROGRESS : (double) snapshot.done() / snapshot.total());
+            progressText.setText(progressLine(snapshot));
+            findingsConsole.setText(String.join("\n", snapshot.activity()));
+            findingsConsole.positionCaret(findingsConsole.getLength());
+            return;
+        }
+        finishRun(snapshot);
     }
 
-    /** Writes attempt reports into another folder instead of the configured one. */
+    private static String progressLine(ProgressSnapshot snapshot) {
+        StringBuilder line = new StringBuilder("Grading ").append(snapshot.done()).append(" of ")
+                .append(snapshot.total());
+        if (!snapshot.currentStudent().isEmpty()) {
+            line.append(" · ").append(snapshot.currentStudent());
+        }
+        if (!snapshot.currentStep().isEmpty()) {
+            line.append(" · ").append(snapshot.currentStep());
+        }
+        long seconds = snapshot.elapsedSeconds();
+        return line.append(" · ").append(String.format(Locale.ROOT, SECONDS_FORMAT,
+                seconds / SECONDS_PER_MINUTE, seconds % SECONDS_PER_MINUTE)).toString();
+    }
+
+    private void finishRun(ProgressSnapshot snapshot) {
+        poller.stop();
+        runInProgress = false;
+        setVisible(progressBox, false);
+        setVisible(cancelButton, false);
+        String lastLine = snapshot.activity().isEmpty() ? "" : snapshot.activity().getLast();
+        long needsReview = snapshot.students().stream()
+                .filter(student -> !student.status().equals("graded") && !student.status().equals("auto-fixed"))
+                .count();
+        if (lastLine.startsWith("Grading cancelled")) {
+            statusText.setText("Grading cancelled");
+        } else if (lastLine.startsWith("Grading failed")) {
+            statusText.setText("Grading failed");
+        } else {
+            statusText.setText(needsReview == 0 ? "Grading complete" : "Grading complete — review errors");
+        }
+        consoleStatus.setText(snapshot.students().size() - needsReview + " graded, " + needsReview
+                + " need review or were skipped");
+        if (resultsTable.selected().isEmpty() && !snapshot.students().isEmpty()) {
+            resultsTable.select(snapshot.students().getFirst().username());
+        }
+        gradingReport = GradingSummaryText.format(snapshot, session.reportsFolder())
+                + "\nProcess log\n===========\n" + String.join("\n", snapshot.activity()) + "\n\n";
+        scoreSheetReport = scoreSheetStatus();
+        refreshConsole();
+        updateButtons();
+    }
+
+    /** Shows the session's table, similar answers and the selected student's details. */
+    private void showSnapshot(ProgressSnapshot snapshot) {
+        resultsTable.update(snapshot);
+        similarityList.update(snapshot.similarPairs());
+        updateSimilarityTab();
+        showDetail();
+    }
+
+    private void showDetail() {
+        detailPane.show(resultsTable.selected(), session != null && session.reportsFolder().isPresent());
+    }
+
+    private void updateSimilarityTab() {
+        long flagged = similarityList.flaggedCount();
+        similarityTab.setText(flagged == 0 ? "Similar answers" : "Similar answers (" + flagged + ")");
+    }
+
+    private void openReport(String username) {
+        Optional<Path> report = session.reportsFolder()
+                .flatMap(folder -> AttemptReportWriter.studentReportOf(folder, username));
+        if (report.isEmpty()) {
+            consoleStatus.setText("No report was written for " + username);
+        } else if (hostServices == null) {
+            consoleStatus.setText("Report: " + report.get().toAbsolutePath());
+        } else {
+            hostServices.showDocument(report.get().toUri().toString());
+        }
+    }
+
+    /** Writes attempt reports into another folder instead of the configured one; used before importing. */
     void useReportsFolder(Path folder) {
-        reportsFolder = folder;
+        GradingSettings current = settings;
+        settings = new GradingSettings(current.compileTimeout(), current.executionTimeout(),
+                current.parallelStudents(), current.maxMemoryMegabytes(), current.maxOutputBytes(),
+                current.maxJavaFileBytes(), current.maxZipBytes(), current.maxZipEntries(),
+                current.emailDomain(), current.maxTesterFileBytes(), current.port(), current.style(),
+                current.penalties(), current.similarity(), folder);
+        session = new GradingSession(settings, progress, workFolder);
+    }
+
+    /** The latest attempt's reports folder, when grading has written one. */
+    Optional<Path> latestReportsFolder() {
+        return session.reportsFolder();
+    }
+
+    /** The folder holding this session's normalized copies. */
+    Path workFolder() {
+        return workFolder;
+    }
+
+    /** The similar answers listed now. */
+    SimilarityList similarityList() {
+        return similarityList;
+    }
+
+    /** The results table. */
+    ResultsTable resultsTable() {
+        return resultsTable;
+    }
+
+    /** The selected student's details as shown. */
+    String detailText() {
+        return detailPane.text();
     }
 
     /**
-     * Stops the identity dialog from opening by itself; the Resolve issues button
-     * still opens it.
+     * Stops the identity dialog from opening by itself; the Resolve issues button still opens it.
      */
     void disableAutomaticIdentityPrompt() {
         identityPromptEnabled = false;
     }
 
     /**
-     * Stops grading and removes this session's normalized copies; called when the
-     * window closes.
+     * Stops grading and removes this session's normalized copies; called when the window closes.
      */
     void shutdown() {
-
-        //xuan
-        closing = true;
-
-        if (gradingTask != null) {
-            // the grading worker removes the copies once its processes have been terminated
-            gradingTask.cancel(true);
-        } else {
-            workspaces.delete(latestSubmissionWorkspace);
+        poller.stop();
+        Path folder = workFolder;
+        workFolder = null;
+        if (folder == null || session == null) {
+            return;
         }
+        if (!session.grading()) {
+            deleteWorkFolder(folder);
+            return;
+        }
+        try {
+            session.cancelGrading();
+        } catch (SessionRefusal refusal) {
+            // The run is writing its reports and finishes by itself.
+        }
+        // Wait off the UI thread until the run's processes have stopped, then remove the copies.
+        GradingSession running = session;
+        Thread cleanup = new Thread(() -> {
+            long deadline = System.currentTimeMillis() + SHUTDOWN_WAIT_MILLIS;
+            while (running.grading() && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(SHUTDOWN_POLL_MILLIS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            deleteWorkFolder(folder);
+        }, "workspace-cleanup");
+        cleanup.start();
     }
 
-    private void clearGradingReport() {
-        gradingReport = "";
-        gradingLog.clear();
-        latestScores = null;
-        scoreSheetReport = scoreSheetStatus();
-        updateWriteScoresButton();
-        refreshReports();
-    }
-
-    private void appendGradingLog(String message) {
-        gradingLog.append(message);
-        findingsConsole.setText(gradingLog.text());
-        findingsConsole.positionCaret(findingsConsole.getLength());
-    }
-
-    private static void startWorker(Runnable work, String name, boolean daemon) {
-        Thread worker = new Thread(work, name);
-        worker.setDaemon(daemon);
-        worker.start();
+    private static void deleteWorkFolder(Path folder) {
+        try {
+            FileTrees.delete(folder);
+        } catch (IOException exception) {
+            LOG.log(Level.WARNING, "Could not delete the temporary work folder " + folder, exception);
+        }
     }
 
     @FXML
@@ -446,11 +508,9 @@ public final class MainViewController {
         chooser.setTitle("Select the score sheet CSV");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files", "*.csv"));
         File selected = chooser.showOpenDialog(scoreSheetImportButton.getScene().getWindow());
-        if (selected == null) {
-            return;
+        if (selected != null) {
+            importScoreSheet(selected.toPath());
         }
-
-        importScoreSheet(selected.toPath());
     }
 
     void importScoreSheet(Path source) {
@@ -461,72 +521,106 @@ public final class MainViewController {
             consoleStatus.setText("Score sheet imported: " + scoreSheet.rowCount() + " students");
         } catch (IOException exception) {
             scoreSheet = null;
-            scoreSheetProblem = ScoreSheetReportFormatter.importFailed(exception);
-            scoreSheetReport = scoreSheetStatus();
+            scoreSheetProblem = "Score sheet not imported\n"
+                    + "========================\n"
+                    + Messages.describe(exception) + "\n"
+                    + "Save filled sheet stays unavailable until a score sheet is imported.\n\n";
+            scoreSheetReport = scoreSheetProblem;
             consoleStatus.setText("Score sheet not imported");
         }
-        updateWriteScoresButton();
-        refreshReports();
+        updateButtons();
+        refreshConsole();
     }
 
     @FXML
     private void writeScoresToSheet() {
-        writeScoresToSheet(
-                preview -> ScoreSheetConfirmation.confirm(preview, writeScoresButton.getScene().getWindow()));
+        saveFilledSheet(
+                preview -> ScoreSheetConfirmation.confirm(preview, writeScoresButton.getScene().getWindow()),
+                this::chooseFilledSheetTarget);
     }
 
-    void writeScoresToSheet(Predicate<ScoreSheetPreview> confirmation) {
-        if (isBusy() || latestScores == null || scoreSheet == null) {
+    /**
+     * Saves a copy of the imported sheet with every matched student's total filled in. The imported file
+     * itself is never changed.
+     *
+     * @param confirmation asks the marker to confirm the preview
+     * @param target       asks where to save the filled copy; empty when the marker cancels
+     */
+    void saveFilledSheet(Predicate<ScoreSheetPreview> confirmation, Supplier<Optional<Path>> target) {
+        if (isBusy() || scoreSheet == null || !session.hasResults()) {
             return;
         }
-        ScoreSheetPreview preview = scoreSheetUpdater.preview(scoreSheet, latestScores);
+        ScoreSheetPreview preview = scoreSheetUpdater.preview(scoreSheet, session.currentScores());
         if (preview.entries().isEmpty()) {
-            scoreSheetReport = ScoreSheetReportFormatter.noMatchingStudents(preview);
-            refreshReports();
+            scoreSheetReport = "Scores not saved\n================\n"
+                    + "No graded student matches a username in the imported score sheet. "
+                    + "Check that the correct sheet was imported.\n\n"
+                    + ScoreSheetConfirmation.describe(preview) + "\n";
+            refreshConsole();
             return;
         }
         if (!confirmation.test(preview)) {
             return;
         }
-        try {
-            ScoreSheetUpdater.Result result = scoreSheetUpdater.write(preview);
-            scoreSheet = result.updatedSheet();
-            scoreSheetReport = ScoreSheetReportFormatter.written(preview, result);
-            statusText.setText("Scores written to score sheet");
-            consoleStatus.setText(result.scoresWritten() + " scores written to " + result.sheet().getFileName());
-        } catch (IOException exception) {
-            scoreSheetReport = ScoreSheetReportFormatter.writeFailed(exception);
-            statusText.setText("Score sheet not updated");
-            consoleStatus.setText("Score sheet not updated");
+        Optional<Path> chosen = target.get();
+        if (chosen.isEmpty()) {
+            return;
         }
-        updateWriteScoresButton();
-        refreshReports();
+        Path file = chosen.get().toAbsolutePath().normalize();
+        if (file.equals(scoreSheet.path().toAbsolutePath().normalize())) {
+            consoleStatus.setText("Choose a different file name; the original sheet is kept unchanged.");
+            return;
+        }
+        try {
+            Files.write(file, scoreSheetUpdater.filledContent(preview));
+            scoreSheetReport = "Filled score sheet saved\n"
+                    + "========================\n"
+                    + ScoreSheetConfirmation.describe(preview)
+                    + "Saved to: " + file + "\nThe imported sheet was not changed.\n\n";
+            statusText.setText("Filled score sheet saved");
+            consoleStatus.setText(preview.entries().size() + " scores saved to " + file.getFileName());
+        } catch (IOException exception) {
+            scoreSheetReport = "Scores not saved\n================\n" + Messages.describe(exception)
+                    + "\nClose the file if it is open in Excel, then try again.\n\n";
+            statusText.setText("Score sheet not saved");
+            consoleStatus.setText("Score sheet not saved");
+        }
+        refreshConsole();
     }
 
-    Alert scoreSheetConfirmation(ScoreSheetPreview preview) {
-        return ScoreSheetConfirmation.create(preview);
+    private Optional<Path> chooseFilledSheetTarget() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save the filled score sheet");
+        Path original = scoreSheet.path().toAbsolutePath();
+        if (original.getParent() != null) {
+            chooser.setInitialDirectory(original.getParent().toFile());
+        }
+        String name = original.getFileName().toString().replaceFirst("(?i)\\.csv$", "");
+        chooser.setInitialFileName(name + GRADED_SHEET_SUFFIX);
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV files", "*.csv"));
+        File selected = chooser.showSaveDialog(writeScoresButton.getScene().getWindow());
+        return Optional.ofNullable(selected).map(File::toPath);
     }
 
     private String scoreSheetStatus() {
-        if (scoreSheet == null && scoreSheetProblem != null) {
-            return scoreSheetProblem;
+        if (scoreSheet == null) {
+            return scoreSheetProblem == null ? "" : scoreSheetProblem;
         }
-        return ScoreSheetReportFormatter.status(scoreSheet, latestScores != null);
-    }
-
-    private void updateWriteScoresButton() {
-        writeScoresButton.setDisable(isBusy() || latestScores == null || scoreSheet == null);
-        saveReportsButton.setDisable(isBusy() || latestReports == null);
+        String nextStep = session != null && session.hasResults()
+                ? "Select Save filled sheet to save a copy filled with this run's totals."
+                : "Run grading, then select Save filled sheet.";
+        return "Score sheet: " + scoreSheet.path() + " (" + scoreSheet.rowCount() + " students). "
+                + nextStep + "\n\n";
     }
 
     @FXML
     private void saveReports() {
-        if (latestReports == null) {
+        if (session.reportsFolder().isEmpty()) {
             return;
         }
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save the grading reports");
-        chooser.setInitialFileName("grading-reports-" + latestAttemptId + ".zip");
+        chooser.setInitialFileName("grading-reports-" + session.latestAttemptId() + ".zip");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("ZIP files", "*.zip"));
         File selected = chooser.showSaveDialog(saveReportsButton.getScene().getWindow());
         if (selected != null) {
@@ -536,55 +630,35 @@ public final class MainViewController {
 
     /** Saves the latest attempt's reports as a ZIP file, in the background. */
     void saveReports(Path zipFile) {
-        if (isBusy() || latestReports == null) {
+        Optional<Path> reports = session.reportsFolder();
+        if (isBusy() || reports.isEmpty()) {
             return;
         }
-        Path reports = latestReports;
-        inputTaskRunning = true;
-        updateReadiness();
-        updateWriteScoresButton();
         consoleStatus.setText("Saving the reports");
-        Task<Void> task = new Task<>() {
-            @Override
-            protected Void call() throws IOException {
-                ReportArchive.save(reports, zipFile);
-                return null;
-            }
-        };
-        task.setOnSucceeded(event -> {
-            inputTaskRunning = false;
-            updateReadiness();
-            updateWriteScoresButton();
+        runInBackground(() -> {
+            ReportArchive.save(reports.get(), zipFile);
+            return zipFile;
+        }, "report-archive", saved -> {
             statusText.setText("Reports saved");
-            consoleStatus.setText("Reports saved to " + zipFile.getFileName());
-            scoreSheetReport = "Reports saved\n=============\n" + zipFile.toAbsolutePath() + "\n\n"
+            consoleStatus.setText("Reports saved to " + saved.getFileName());
+            scoreSheetReport = "Reports saved\n=============\n" + saved.toAbsolutePath() + "\n\n"
                     + scoreSheetStatus();
-            refreshReports();
-        });
-        task.setOnFailed(event -> {
-            inputTaskRunning = false;
-            updateReadiness();
-            updateWriteScoresButton();
+            refreshConsole();
+        }, failure -> {
             statusText.setText("Reports not saved");
             consoleStatus.setText("Reports not saved");
-            scoreSheetReport = "Reports not saved\n=================\n" + Messages.describe(task.getException())
+            scoreSheetReport = "Reports not saved\n=================\n" + Messages.describe(failure)
                     + "\n\n" + scoreSheetStatus();
-            refreshReports();
+            refreshConsole();
         });
-        startWorker(task, "report-archive", true);
     }
 
-    private void showResults(List<SubmissionValidationResult> results, Path workspace) {
+    private void showSubmissions(List<SubmissionValidationResult> results) {
         long ready = results.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
-        long skipped = results.size() - ready;
+        final long skipped = results.size() - ready;
         submissionsImported = true;
-        readySubmissionCount = ready;
-        totalSubmissionCount = results.size();
-        latestSubmissionResults = List.copyOf(results);
-
-        progress.prepare(results);
-
-        latestSubmissionWorkspace = workspace;
+        submissions = List.copyOf(results);
+        gradingReport = "";
 
         TreeItem<String> root = new TreeItem<>("Normalized submissions");
         root.setExpanded(true);
@@ -598,15 +672,15 @@ public final class MainViewController {
         }
         submissionFiles.setRoot(root);
         submissionFiles.setShowRoot(true);
-        submissionEmptyState.setVisible(results.isEmpty());
-        submissionEmptyState.setManaged(results.isEmpty());
+        setVisible(submissionEmptyState, results.isEmpty());
 
-        submissionReport = ValidationReportFormatter.submissions(results, workspace);
-        refreshReports();
-        statusText.setText(skipped == 0 ? "Submissions ready" : "Review required");
+        submissionReport = FindingsText.submissions(results);
+        scoreSheetReport = scoreSheetStatus();
+        showSnapshot(progress.snapshot());
+        refreshConsole();
+        statusText.setText(skipped == 0 ? formatSubmissionReadiness(ready, results.size()) : "Review required");
         consoleStatus.setText(String.format(Locale.ROOT, "%d ready, %d need attention", ready, skipped));
-        updateReadiness();
-        updateResolveIssuesButton();
+        updateButtons();
         if (identityPromptEnabled && resolveIssuesButton.isVisible() && !identityPromptOffered) {
             identityPromptOffered = true;
             Platform.runLater(this::resolveSubmissionIssues);
@@ -618,71 +692,40 @@ public final class MainViewController {
         if (isBusy()) {
             return;
         }
-        List<SubmissionValidationResult> affected = latestSubmissionResults.stream()
-                .filter(this::needsIdentityInput)
+        List<SubmissionValidationResult> affected = submissions.stream()
+                .filter(MainViewController::needsIdentityInput)
                 .filter(result -> result.normalizedRoot() != null)
                 .toList();
         if (affected.isEmpty()) {
-            updateResolveIssuesButton();
+            updateButtons();
             return;
         }
         identityDialog.show(resolveIssuesButton.getScene().getWindow(), affected)
                 .ifPresent(this::applyConfirmedIdentities);
     }
 
-    private void applyConfirmedIdentities(
-            Map<SubmissionValidationResult, StudentIdentity> confirmed) {
-        if (confirmed.isEmpty() || latestSubmissionWorkspace == null) {
+    private void applyConfirmedIdentities(Map<SubmissionValidationResult, StudentIdentity> confirmed) {
+        if (confirmed.isEmpty()) {
             return;
         }
-
-        inputTaskRunning = true;
-        clearGradingReport();
-        updateReadiness();
         statusText.setText("Applying verified identities");
         consoleStatus.setText("Revalidating corrected copies");
-        Path correctionRoot = latestSubmissionWorkspace.resolve("guided-corrections-" + UUID.randomUUID());
-        List<SubmissionValidationResult> currentResults = latestSubmissionResults;
-
-        Task<List<SubmissionValidationResult>> task = new Task<>() {
-            @Override
-            protected List<SubmissionValidationResult> call() throws IOException {
-                List<SubmissionValidationResult> updated = new ArrayList<>();
-                int index = 0;
-                for (SubmissionValidationResult result : currentResults) {
-                    StudentIdentity identity = confirmed.get(result);
-                    if (identity == null) {
-                        updated.add(result);
-                    } else {
-                        Path studentWorkspace = correctionRoot.resolve("student-" + index++);
-                        updated.add(correctionService.applyIdentity(result, identity, studentWorkspace));
-                    }
-                }
-                return List.copyOf(updated);
+        runInBackground(() -> {
+            for (Map.Entry<SubmissionValidationResult, StudentIdentity> entry : confirmed.entrySet()) {
+                session.confirmIdentity(entry.getKey().username(), entry.getValue());
             }
-        };
-        task.setOnSucceeded(event -> {
-            inputTaskRunning = false;
-            showResults(task.getValue(), latestSubmissionWorkspace);
-        });
-        task.setOnFailed(event -> {
-            inputTaskRunning = false;
-            updateReadiness();
-            submissionReport += "\nGuided correction could not be completed: "
-                    + Messages.describe(task.getException())
+            return session.submissions();
+        }, "submission-identity-correction", this::showSubmissions, failure -> {
+            submissionReport += "\nGuided correction could not be completed: " + Messages.describe(failure)
                     + "\nNext step for marker: Review the entered identity values and try Resolve issues again.\n";
-            refreshReports();
+            refreshConsole();
             statusText.setText("Correction failed");
             consoleStatus.setText("Verified details were not applied");
         });
-
-        startWorker(task, "submission-identity-correction", true);
     }
 
     private void showTesterResult(TesterValidationResult result) {
         testerImported = true;
-        latestTesterResult = result;
-
         TreeItem<String> root = new TreeItem<>(
                 result.source().getFileName() + (result.isValid() ? " - valid" : " - needs attention"));
         root.setExpanded(true);
@@ -691,14 +734,18 @@ public final class MainViewController {
                 .forEach(entry -> root.getChildren().add(new TreeItem<>(entry.getKey())));
         testerFiles.setRoot(root);
         testerFiles.setShowRoot(true);
-        testerEmptyState.setVisible(false);
-        testerEmptyState.setManaged(false);
+        setVisible(testerEmptyState, false);
 
-        testerReport = ValidationReportFormatter.testers(result);
-        refreshReports();
+        testerReport = FindingsText.testers(result) + (result.isValid() ? "" : keptTestersNote());
+        refreshConsole();
         statusText.setText(result.isValid() ? "Tester files ready" : "Review required");
         consoleStatus.setText(result.isValid() ? "Tester files valid" : "Tester files need attention");
-        updateReadiness();
+        updateButtons();
+    }
+
+    private String keptTestersNote() {
+        return session.testersReady()
+                ? "\nThe tester files imported earlier are still valid and are used for grading.\n" : "";
     }
 
     private void addNormalizedTree(TreeItem<String> student, Path normalizedRoot) {
@@ -720,38 +767,51 @@ public final class MainViewController {
         }
     }
 
-    private String statusSuffix(SubmissionValidationResult result) {
+    private static String statusSuffix(SubmissionValidationResult result) {
         if (!result.isReadyForGrading()) {
             return " - needs attention";
         }
-        if (!result.missingQuestions().isEmpty()) {
-            return " - ready, missing " + String.join(", ", result.missingQuestions());
+        List<String> missing = FindingsText.missingQuestions(result);
+        if (!missing.isEmpty()) {
+            return " - ready, missing " + String.join(", ", missing);
         }
         return result.correctedCount() > 0 ? " - ready (corrected)" : " - ready";
     }
 
-    private void refreshReports() {
+    private void refreshConsole() {
         String separator = !testerReport.isBlank() && !submissionReport.isBlank() ? "\n" : "";
         findingsConsole.setText(scoreSheetReport + gradingReport + testerReport + separator + submissionReport);
         findingsConsole.positionCaret(0);
     }
 
-    private void updateReadiness() {
+    private void updateButtons() {
         boolean busy = isBusy();
+        final boolean hasResults = session != null && session.hasResults();
         runGradingButton.setDisable(busy || !inputsReady());
-        testerImportButton.setDisable(busy);
-        submissionImportButton.setDisable(busy);
+        testerImportButton.setDisable(busy || session == null);
+        submissionImportButton.setDisable(busy || session == null);
         resolveIssuesButton.setDisable(busy);
-        if (gradingTask != null) {
-            runReadinessText.setText("Grading in progress. Scores and logs appear below.");
+        scoreSheetImportButton.setDisable(busy);
+        writeScoresButton.setDisable(busy || !hasResults || scoreSheet == null);
+        saveReportsButton.setDisable(busy || session == null || session.reportsFolder().isEmpty());
+        regradeButton.setDisable(busy || !hasResults || resultsTable.selected()
+                .map(student -> student.status().equals("skipped")).orElse(true));
+        boolean identityIssues = submissions.stream().anyMatch(MainViewController::needsIdentityInput);
+        setVisible(resolveIssuesButton, identityIssues);
+
+        long ready = submissions.stream().filter(SubmissionValidationResult::isReadyForGrading).count();
+        if (runInProgress) {
+            runReadinessText.setText("Grading in progress. Watch the table; Cancel stops the run.");
         } else if (inputTaskRunning) {
             runReadinessText.setText("Validating inputs. Please wait.");
         } else if (testerImported && submissionsImported) {
             if (!inputsReady()) {
                 runReadinessText.setText("Resolve the reported validation errors before grading.");
-            } else if (readySubmissionCount < totalSubmissionCount) {
-                runReadinessText.setText(formatSubmissionReadiness(readySubmissionCount, totalSubmissionCount)
+            } else if (ready < submissions.size()) {
+                runReadinessText.setText(formatSubmissionReadiness(ready, submissions.size())
                         + ". The others are skipped until their identity is confirmed.");
+            } else if (hasResults) {
+                runReadinessText.setText("Graded. Select a student to see why marks were lost, or regrade them.");
             } else {
                 runReadinessText.setText("Both folders are validated and ready.");
             }
@@ -762,39 +822,57 @@ public final class MainViewController {
         } else {
             runReadinessText.setText("Import both folders to get started.");
         }
-
-        if (totalSubmissionCount > 0) {
-            statusText.setText(formatSubmissionReadiness(readySubmissionCount, totalSubmissionCount));
-        }
     }
 
     private boolean isBusy() {
-        return inputTaskRunning || gradingTask != null;
+        return inputTaskRunning || runInProgress;
     }
 
     private boolean inputsReady() {
-        return latestTesterResult != null && latestTesterResult.isValid()
-                && latestSubmissionResults.stream().anyMatch(SubmissionValidationResult::isReadyForGrading);
+        return session != null && session.testersReady() && session.submissionsReady();
     }
 
     static String formatSubmissionReadiness(long ready, long total) {
         return ready + " out of " + total + " submissions ready";
     }
 
-    private void updateResolveIssuesButton() {
-        boolean hasIdentityIssues = latestSubmissionResults.stream().anyMatch(this::needsIdentityInput);
-        resolveIssuesButton.setVisible(hasIdentityIssues);
-        resolveIssuesButton.setManaged(hasIdentityIssues);
-    }
-
-    private boolean needsIdentityInput(SubmissionValidationResult result) {
+    private static boolean needsIdentityInput(SubmissionValidationResult result) {
         return result.findings().stream().anyMatch(SubmissionFinding::needsIdentityConfirmation);
     }
 
-    private record ImportedSubmissions(List<SubmissionValidationResult> results, Path workspace) {
+    private static void setVisible(Node node, boolean visible) {
+        node.setVisible(visible);
+        node.setManaged(visible);
     }
 
-    private record GradingRun(List<StudentGradingResult> results, GradingAttempt attempt,
-            AttemptReportWriter.Written reports) {
+    /** Runs work off the UI thread, keeping the inputs disabled until it ends. */
+    private <T> void runInBackground(Callable<T> work, String name, Consumer<T> succeeded,
+            Consumer<Throwable> failed) {
+        inputTaskRunning = true;
+        updateButtons();
+        Task<T> task = new Task<>() {
+            @Override
+            protected T call() throws Exception {
+                return work.call();
+            }
+        };
+        task.setOnSucceeded(event -> {
+            inputTaskRunning = false;
+            succeeded.accept(task.getValue());
+            updateButtons();
+        });
+        task.setOnFailed(event -> {
+            inputTaskRunning = false;
+            failed.accept(task.getException());
+            updateButtons();
+        });
+        Thread worker = new Thread(task, name);
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** An alert for the score sheet preview; used by tests to check its text. */
+    Alert scoreSheetConfirmation(ScoreSheetPreview preview) {
+        return ScoreSheetConfirmation.create(preview);
     }
 }

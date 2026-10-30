@@ -2,6 +2,10 @@
 
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.control.TreeView?>
@@ -28,7 +32,7 @@
         </HBox>
     </HBox>
 
-    <HBox spacing="20" minHeight="320" prefHeight="370" VBox.vgrow="ALWAYS">
+    <HBox spacing="20" minHeight="230" prefHeight="270">
         <VBox minWidth="0" prefWidth="0" HBox.hgrow="ALWAYS" styleClass="file-panel">
             <VBox spacing="12" styleClass="panel-heading">
                 <HBox alignment="CENTER_LEFT" spacing="12">
@@ -46,7 +50,7 @@
                            editable="false" focusTraversable="false"
                            accessibleText="Tester files folder"/>
             </VBox>
-            <StackPane minHeight="135" VBox.vgrow="ALWAYS" styleClass="browser-body">
+            <StackPane minHeight="90" VBox.vgrow="ALWAYS" styleClass="browser-body">
                 <TreeView fx:id="testerFiles" editable="false" focusTraversable="false"
                           accessibleText="Imported tester folders and files" styleClass="file-tree"/>
                 <VBox fx:id="testerEmptyState" alignment="CENTER" spacing="10"
@@ -78,7 +82,7 @@
                            editable="false" focusTraversable="false"
                            accessibleText="Student submissions folder"/>
             </VBox>
-            <StackPane minHeight="135" VBox.vgrow="ALWAYS" styleClass="browser-body">
+            <StackPane minHeight="90" VBox.vgrow="ALWAYS" styleClass="browser-body">
                 <TreeView fx:id="submissionFiles" editable="false" focusTraversable="false"
                           accessibleText="Imported student folders and submission files" styleClass="file-tree"/>
                 <VBox fx:id="submissionEmptyState" alignment="CENTER" spacing="10"
@@ -101,6 +105,16 @@
             <Label fx:id="runReadinessText" text="Import both folders to get started." styleClass="muted"/>
         </VBox>
         <Region HBox.hgrow="ALWAYS"/>
+        <VBox fx:id="progressBox" spacing="4" alignment="CENTER_LEFT" visible="false" managed="false">
+            <ProgressBar fx:id="gradingProgress" prefWidth="240" progress="0"/>
+            <Label fx:id="progressText" styleClass="muted"/>
+        </VBox>
+        <Button fx:id="cancelButton" text="Cancel" visible="false" managed="false"
+                styleClass="score-sheet-button" onAction="#cancelGrading"
+                accessibleText="Stop the grading run; marks from before it are kept"/>
+        <Button fx:id="regradeButton" text="Regrade selected" disable="true"
+                styleClass="score-sheet-button" onAction="#regradeSelected"
+                accessibleText="Grade the student selected in the results table again"/>
         <Button fx:id="runGradingButton" text="Run grading" onAction="#runGrading"
                 disable="true" minWidth="166" graphicTextGap="10" styleClass="run-button">
             <graphic>
@@ -109,29 +123,44 @@
         </Button>
     </HBox>
 
-    <VBox minHeight="210" prefHeight="250" VBox.vgrow="ALWAYS" styleClass="console-panel">
+    <VBox minHeight="260" prefHeight="420" VBox.vgrow="ALWAYS" styleClass="console-panel">
         <HBox alignment="CENTER_LEFT" spacing="20" styleClass="console-heading">
-            <VBox spacing="4">
-                <Label text="Findings &amp; reports" styleClass="console-title"/>
-                <Label text="Compilation, execution, and grading results" styleClass="console-description"/>
+            <VBox spacing="4" minWidth="-Infinity">
+                <Label text="Results &amp; reports" styleClass="console-title"/>
+                <Label text="Scores, similar answers, feedback and the grading log" styleClass="console-description"/>
             </VBox>
             <Region HBox.hgrow="ALWAYS"/>
-            <Button fx:id="scoreSheetImportButton" text="Import score sheet"
+            <Button fx:id="scoreSheetImportButton" minWidth="-Infinity" text="Import score sheet"
                     styleClass="score-sheet-button" onAction="#importScoreSheet"
                     accessibleText="Import the score sheet CSV to fill with totals"/>
-            <Button fx:id="writeScoresButton" text="Write scores" disable="true"
+            <Button fx:id="writeScoresButton" minWidth="-Infinity" text="Save filled sheet" disable="true"
                     styleClass="score-sheet-button" onAction="#writeScoresToSheet"
-                    accessibleText="Write each student's total into the imported score sheet"/>
-            <Button fx:id="saveReportsButton" text="Save reports" disable="true"
+                    accessibleText="Save a copy of the imported score sheet with each student's total filled in"/>
+            <Button fx:id="saveReportsButton" minWidth="-Infinity" text="Save reports" disable="true"
                     styleClass="score-sheet-button" onAction="#saveReports"
                     accessibleText="Save the latest grading attempt's PDF reports as a ZIP file"/>
-            <Button fx:id="resolveIssuesButton" text="Resolve issues" visible="false" managed="false"
+            <Button fx:id="resolveIssuesButton" minWidth="-Infinity" text="Resolve issues" visible="false" managed="false"
                     styleClass="resolution-button" onAction="#resolveSubmissionIssues"/>
-            <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"/>
+            <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"
+                   minWidth="0" maxWidth="320" textOverrun="ELLIPSIS"/>
         </HBox>
-        <TextArea fx:id="findingsConsole" promptText="Validation findings will appear here after import."
-                  editable="false" wrapText="true" focusTraversable="false"
-                  accessibleText="Grading console: findings and reports"
-                  styleClass="console" minHeight="140" VBox.vgrow="ALWAYS"/>
+        <SplitPane fx:id="resultsSplit" orientation="VERTICAL" dividerPositions="0.55" VBox.vgrow="ALWAYS"
+                   styleClass="results-split">
+            <SplitPane dividerPositions="0.62">
+                <StackPane fx:id="resultsHolder" minHeight="90"/>
+                <StackPane fx:id="detailHolder" minWidth="220"/>
+            </SplitPane>
+            <TabPane fx:id="consoleTabs" tabClosingPolicy="UNAVAILABLE" minHeight="90">
+                <Tab text="Activity">
+                    <TextArea fx:id="findingsConsole"
+                              promptText="Validation findings and the grading log will appear here."
+                              editable="false" wrapText="true" focusTraversable="false"
+                              accessibleText="Grading console: findings and reports" styleClass="console"/>
+                </Tab>
+                <Tab fx:id="similarityTab" text="Similar answers">
+                    <StackPane fx:id="similarityHolder"/>
+                </Tab>
+            </TabPane>
+        </SplitPane>
     </VBox>
 </VBox>
