@@ -215,6 +215,27 @@ class ScoreSheetWorkflowTest {
         });
     }
 
+    @Test
+    void warnsAboutStudentsStillToCheckAndDefaultsToReviewFirst() throws Exception {
+        ScoreSheetPreview preview = new ScoreSheetUpdater().preview(ScoreSheet.load(sheet),
+                new ScoreSummary(List.of(new StudentScore("alice", Map.of(), 10.0))));
+        fx(() -> {
+            Alert alert = ScoreSheetConfirmation.create(preview, List.of("alice"), List.of("unknown-1"));
+            DialogPane pane = alert.getDialogPane();
+            assertTrue(alert.getHeaderText().startsWith("Before you save: 1 total still needs review, and 1 student "
+                    + "was skipped"), alert.getHeaderText());
+            String details = ((TextArea) pane.getContent()).getText();
+            assertTrue(details.contains("alice") && details.contains("unknown-1"), details);
+            Button save = (Button) pane.lookupButton(pane.getButtonTypes().get(0));
+            Button reviewFirst = (Button) pane.lookupButton(pane.getButtonTypes().get(1));
+            assertEquals("Save anyway", save.getText());
+            assertEquals("Review first", reviewFirst.getText());
+            assertTrue(reviewFirst.isDefaultButton());
+            assertFalse(save.isDefaultButton());
+            return null;
+        });
+    }
+
     private void grade() throws Exception {
         fx(() -> { controller.importTesterFiles(testers); return null; });
         await(() -> !button("testerImportButton").isDisabled());

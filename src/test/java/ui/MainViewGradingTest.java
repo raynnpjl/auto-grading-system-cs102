@@ -227,7 +227,8 @@ class MainViewGradingTest {
         assertTrue(report.startsWith("Grading results"), report);
         assertTrue(report.contains("[alice] Q1a: 1.5   Q1b: 0.0   Q2a: 1.5   Q2b: 1.5   Q3: 4.0   Total: 8.5"),
                 report);
-        assertEquals("Grading complete — review errors", fx(() -> ((Label) root.lookup("#statusText")).getText()));
+        assertEquals("Grading complete — 1 to check", fx(() -> ((Label) root.lookup("#statusText")).getText()));
+        assertTrue(fx(() -> root.lookup("#statusBadge").getStyleClass().contains("attention")));
         assertFalse(fx(() -> button("cancelButton").isVisible()));
         assertTrue(report.contains("[Q1a] Compiling"), report);
         assertTrue(report.contains("[Q1a] Running Q1aTester"), report);
@@ -254,6 +255,16 @@ class MainViewGradingTest {
             var importBounds = imports.localToScene(imports.getBoundsInLocal());
             assertTrue(consoleBounds.getMinY() > importBounds.getMaxY());
             assertTrue(consoleBounds.getHeight() >= 210);
+            // Nothing in an import panel may reach under the run toolbar, at any window size.
+            var toolbar = root.lookup(".run-toolbar");
+            double toolbarTop = toolbar.localToScene(toolbar.getBoundsInLocal()).getMinY();
+            for (var panel : root.lookupAll(".file-panel")) {
+                assertTrue(panel.localToScene(panel.getBoundsInLocal()).getMaxY() <= toolbarTop,
+                        "an import panel overlaps the run toolbar at " + sceneWidth + "x" + sceneHeight);
+            }
+            var table = root.lookup("#resultsTable");
+            assertTrue(table.getLayoutBounds().getHeight() >= 120,
+                    "the results table is too short at " + sceneWidth + "x" + sceneHeight);
             assertTrue(button("runGradingButton").localToScene(button("runGradingButton").getBoundsInLocal()).getMaxY()
                     <= sceneHeight);
             int width = (int) snapshot.getWidth();
@@ -290,9 +301,9 @@ class MainViewGradingTest {
         Files.move(student, batch.resolve("alice"));
         writeStudent(batch.resolve("bob"), "Bob Student", "bob@smu.edu.sg", null);
         importStudents(batch);
-        assertEquals(2, fx(() -> controller.resultsTable().view().getItems().size()));
+        assertEquals(2, fx(() -> controller.resultsTable().table().getItems().size()));
         assertFalse(fx(() -> root.lookup("#progressBox").isVisible()), "the import progress is hidden again");
-        assertEquals(GradingStatus.QUEUED, fx(() -> controller.resultsTable().view().getItems().getFirst().status()));
+        assertEquals(GradingStatus.QUEUED, fx(() -> controller.resultsTable().table().getItems().getFirst().status()));
     }
 
     @Test

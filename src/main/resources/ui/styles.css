@@ -306,3 +306,78 @@
 .similarity-view {
     -fx-padding: 8;
 }
+
+/* Import panels shrink to one line once their import succeeds */
+.import-summary {
+    -fx-padding: 2 0 0 0;
+}
+
+.summary-check {
+    -fx-fill: transparent;
+    -fx-stroke: #23744a;
+    -fx-stroke-width: 2;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+}
+
+.summary-text {
+    -fx-text-fill: #243248;
+    -fx-font-weight: bold;
+}
+
+.files-toggle,
+.files-toggle:visited,
+.files-toggle:hover {
+    -fx-text-fill: #2e686a;
+    -fx-padding: 0;
+    -fx-border-color: transparent;
+}
+
+/* Status pill: blue while working, amber when something needs checking, green when everything is graded */
+.status-badge.working {
+    -fx-background-color: #e3ecf8;
+}
+
+.status-badge.working .status-text {
+    -fx-text-fill: #1f4f99;
+}
+
+.status-badge.working .status-dot {
+    -fx-fill: #2f6fd0;
+}
+
+.status-badge.attention {
+    -fx-background-color: #fdf0d8;
+}
+
+.status-badge.attention .status-text {
+    -fx-text-fill: #6e4100;
+    -fx-font-weight: bold;
+}
+
+.status-badge.attention .status-dot {
+    -fx-fill: #b86e00;
+}
+
+.status-badge.done {
+    -fx-background-color: #dff1e6;
+}
+
+.status-badge.done .status-text {
+    -fx-text-fill: #1d5c39;
+}
+
+.status-badge.done .status-dot {
+    -fx-fill: #2f8f5b;
+}
+
+/* Results table: the filter above it, and the reason a student needs checking */
+.results-filter {
+    -fx-padding: 8 12;
+    -fx-background-color: white;
+    -fx-border-color: transparent transparent #e7ecf2 transparent;
+}
+
+.review-reason {
+    -fx-text-fill: #6e4100;
+}

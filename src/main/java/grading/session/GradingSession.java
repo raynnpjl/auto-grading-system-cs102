@@ -5,6 +5,7 @@ import grading.common.FileTrees;
 import grading.common.Messages;
 import grading.config.GradingSettings;
 import grading.execution.JavaGradingService;
+import grading.execution.QuestionGradingResult;
 import grading.execution.StudentGradingResult;
 import grading.progress.ProgressTracker;
 import grading.reporting.AttemptReportWriter;
@@ -174,8 +175,14 @@ public final class GradingSession {
         progress.prepare(batch);
         for (StudentGradingResult result : latestResults) {
             Map<String, Double> scores = new LinkedHashMap<>();
-            result.questions().forEach(question -> scores.put(question.questionId(), question.score()));
-            progress.showResult(result.username(), scores, result.needsReview());
+            Map<String, QuestionGradingResult.Status> problems = new LinkedHashMap<>();
+            result.questions().forEach(question -> {
+                scores.put(question.questionId(), question.score());
+                if (question.status() != QuestionGradingResult.Status.GRADED) {
+                    problems.put(question.questionId(), question.status());
+                }
+            });
+            progress.showResult(result.username(), scores, problems);
         }
         GradingAttempt attempt = latestAttempt;
         if (attempt != null) {

@@ -1,5 +1,6 @@
 package ui;
 
+import grading.assessment.AssessmentDefinition;
 import grading.common.FileTrees;
 import grading.common.Messages;
 import grading.config.GradingSettings;
@@ -39,12 +40,14 @@ import javafx.fxml.FXML;
 import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TreeView;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
@@ -63,6 +66,9 @@ public final class MainViewController {
     // How long closing the window waits for a cancelled run to stop its processes before deleting files.
     private static final long SHUTDOWN_WAIT_MILLIS = 30_000;
     private static final long SHUTDOWN_POLL_MILLIS = 50;
+    private static final String BADGE_WORKING = "working";
+    private static final String BADGE_ATTENTION = "attention";
+    private static final String BADGE_DONE = "done";
 
     private GradingSettings settings = GradingSettings.current();
     private final ProgressTracker progress = new ProgressTracker();
@@ -75,6 +81,8 @@ public final class MainViewController {
     private ResultsTable resultsTable;
     private StudentDetailPane detailPane;
     private SimilarityList similarityList;
+    private ImportPanel testerPanel;
+    private ImportPanel submissionPanel;
     private HostServices hostServices;
 
     private Path workFolder;
@@ -115,7 +123,40 @@ public final class MainViewController {
     private VBox submissionEmptyState;
 
     @FXML
+    private HBox statusBadge;
+
+    @FXML
     private Label statusText;
+
+    @FXML
+    private Label testerHint;
+
+    @FXML
+    private HBox testerSummary;
+
+    @FXML
+    private Label testerSummaryText;
+
+    @FXML
+    private Hyperlink testerFilesToggle;
+
+    @FXML
+    private StackPane testerBrowser;
+
+    @FXML
+    private Label submissionHint;
+
+    @FXML
+    private HBox submissionSummary;
+
+    @FXML
+    private Label submissionSummaryText;
+
+    @FXML
+    private Hyperlink submissionFilesToggle;
+
+    @FXML
+    private StackPane submissionBrowser;
 
     @FXML
     private Label consoleStatus;
@@ -176,11 +217,15 @@ public final class MainViewController {
         resultsHolder.getChildren().add(resultsTable.view());
         detailHolder.getChildren().add(detailPane.view());
         similarityHolder.getChildren().add(similarityList.view());
-        resultsTable.view().getSelectionModel().selectedItemProperty()
+        resultsTable.table().getSelectionModel().selectedItemProperty()
                 .addListener((property, before, after) -> {
                     showDetail();
                     updateButtons();
                 });
+        testerPanel = new ImportPanel(testerImportButton, testerHint, testerFolderField, testerBrowser, testerSummary,
+                testerSummaryText, testerFilesToggle);
+        submissionPanel = new ImportPanel(submissionImportButton, submissionHint, submissionFolderField,
+                submissionBrowser, submissionSummary, submissionSummaryText, submissionFilesToggle);
         updateSimilarityTab();
         startSession(Path.of(System.getProperty("java.io.tmpdir")));
     }
@@ -237,6 +282,7 @@ public final class MainViewController {
                             + "\n  Next step for marker: Confirm that the selected folder is readable and contains "
                             + "the official tester sources, then import it again.\n"
                             + keptTestersNote());
+                    testerPanel.expand();
                     showImportFailure("Tester import not completed");
                 });
     }
@@ -263,6 +309,7 @@ public final class MainViewController {
                 Platform.runLater(() -> showImportProgress(done, total, name))), "submission-validator",
                 this::showSubmissions, failure -> {
                     setVisible(progressBox, false);
+                    submissionPanel.expand();
                     submissionsImported = true;
                     console.setSubmissions("Submission validation failed\n"
                             + "============================\n"
@@ -334,6 +381,7 @@ public final class MainViewController {
         runInProgress = true;
         console.setGrading("");
         statusText.setText("Grading in progress");
+        setBadgeTone(BADGE_WORKING);
         consoleStatus.setText(description);
         gradingProgress.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
         progressText.setText("Starting");
@@ -358,10 +406,16 @@ public final class MainViewController {
         setVisible(progressBox, false);
         setVisible(cancelButton, false);
         long needsReview = snapshot.students().stream().filter(student -> !student.status().isClean()).count();
+        long toCheck = resultsTable.toCheckCount();
         statusText.setText(switch (session.lastOutcome()) {
             case CANCELLED -> "Grading cancelled";
             case FAILED -> "Grading failed";
-            case COMPLETED, NONE -> needsReview == 0 ? "Grading complete" : "Grading complete — review errors";
+            case COMPLETED, NONE -> toCheck == 0 ? "Grading complete" : "Grading complete — " + toCheck + " to check";
+        });
+        setBadgeTone(switch (session.lastOutcome()) {
+            case CANCELLED -> null;
+            case FAILED -> BADGE_ATTENTION;
+            case COMPLETED, NONE -> toCheck == 0 ? BADGE_DONE : BADGE_ATTENTION;
         });
         consoleStatus.setText(snapshot.students().size() - needsReview + " graded, " + needsReview
                 + " need review or were skipped");
@@ -373,6 +427,14 @@ public final class MainViewController {
         console.setScoreSheet(scoreSheet.status(session.hasResults()));
         refreshConsole();
         updateButtons();
+    }
+
+    // Colours the status pill: working while grading, amber when something needs checking, green when done.
+    private void setBadgeTone(String tone) {
+        statusBadge.getStyleClass().removeAll(BADGE_WORKING, BADGE_ATTENTION, BADGE_DONE);
+        if (tone != null) {
+            statusBadge.getStyleClass().add(tone);
+        }
     }
 
     /** Shows the session's table, similar answers and the selected student's details. */
@@ -507,9 +569,16 @@ public final class MainViewController {
 
     @FXML
     private void writeScoresToSheet() {
-        saveFilledSheet(
-                preview -> ScoreSheetConfirmation.confirm(preview, writeScoresButton.getScene().getWindow()),
-                this::chooseFilledSheetTarget);
+        List<StudentProgress> students = progress.snapshot().students();
+        List<String> toReview = usernamesWith(students, GradingStatus.NEEDS_REVIEW);
+        List<String> skipped = usernamesWith(students, GradingStatus.SKIPPED);
+        saveFilledSheet(preview -> ScoreSheetConfirmation.confirm(preview, toReview, skipped,
+                writeScoresButton.getScene().getWindow()), this::chooseFilledSheetTarget);
+    }
+
+    private static List<String> usernamesWith(List<StudentProgress> students, GradingStatus status) {
+        return students.stream().filter(student -> student.status() == status).map(StudentProgress::username)
+                .toList();
     }
 
     /**
@@ -600,6 +669,8 @@ public final class MainViewController {
         submissionFiles.setRoot(SubmissionTrees.submissions(results));
         submissionFiles.setShowRoot(true);
         setVisible(submissionEmptyState, results.isEmpty());
+        submissionPanel.collapse(results.size() + (results.size() == 1 ? " submission" : " submissions") + " · "
+                + ready + " ready" + (skipped == 0 ? "" : " · " + skipped + " need attention"));
 
         console.setGrading("");
         console.setSubmissions(FindingsText.submissions(results));
@@ -657,6 +728,12 @@ public final class MainViewController {
         testerFiles.setRoot(SubmissionTrees.testers(result));
         testerFiles.setShowRoot(true);
         setVisible(testerEmptyState, false);
+        if (result.isValid()) {
+            testerPanel.collapse(result.testerFiles().size() + " of " + AssessmentDefinition.testerFiles().size()
+                    + " tester files valid");
+        } else {
+            testerPanel.expand();
+        }
         console.setTesters(FindingsText.testers(result) + (result.isValid() ? "" : keptTestersNote()));
         refreshConsole();
         statusText.setText(result.isValid() ? "Tester files ready" : "Review required");

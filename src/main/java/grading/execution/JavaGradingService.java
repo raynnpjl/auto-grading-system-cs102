@@ -115,7 +115,7 @@ public final class JavaGradingService {
             progress.stepStarted(username, "compiling " + question.id());
             QuestionGradingResult questionResult = gradeSubmittedQuestion(submission, question, testers);
             questions.add(questionResult);
-            progress.questionFinished(username, question.id(), questionResult.score());
+            progress.questionFinished(username, question.id(), questionResult.score(), questionResult.status());
         }
 
         StudentGradingResult result = new StudentGradingResult(username, questions);
