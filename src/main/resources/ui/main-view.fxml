@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Hyperlink?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
 <?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.control.TreeView?>
@@ -14,7 +19,7 @@
 
 <VBox xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1"
       fx:controller="ui.MainViewController"
-      spacing="20" styleClass="workspace">
+      spacing="14" styleClass="workspace">
     <HBox alignment="CENTER_LEFT" spacing="24">
         <VBox spacing="6">
             <Label text="AGS" styleClass="title"/>
@@ -22,13 +27,15 @@
                    styleClass="muted"/>
         </VBox>
         <Region HBox.hgrow="ALWAYS"/>
-        <HBox alignment="CENTER" spacing="8" maxHeight="34" styleClass="status-badge">
+        <Button fx:id="helpButton" text="How to grade" onAction="#showHelp" minWidth="-Infinity"
+                styleClass="score-sheet-button" accessibleText="Show how to grade a batch of submissions"/>
+        <HBox fx:id="statusBadge" alignment="CENTER" spacing="8" maxHeight="34" styleClass="status-badge">
             <Circle radius="3.5" styleClass="status-dot"/>
             <Label fx:id="statusText" text="Not started" styleClass="status-text"/>
         </HBox>
     </HBox>
 
-    <HBox spacing="20" minHeight="320" prefHeight="370" VBox.vgrow="ALWAYS">
+    <HBox spacing="20">
         <VBox minWidth="0" prefWidth="0" HBox.hgrow="ALWAYS" styleClass="file-panel">
             <VBox spacing="12" styleClass="panel-heading">
                 <HBox alignment="CENTER_LEFT" spacing="12">
@@ -37,27 +44,35 @@
                     </VBox>
                     <Region HBox.hgrow="ALWAYS"/>
                     <Button fx:id="testerImportButton" text="Import folder" minWidth="120"
-                            styleClass="import-button"
+                            styleClass="import-button" accessibleText="Import or change the tester files folder"
                             onAction="#importTesterFiles"/>
                 </HBox>
-                <Label text="Select the Tester-Files folder."
-                       styleClass="muted" wrapText="true"/>
+                <HBox fx:id="testerSummary" alignment="CENTER_LEFT" spacing="8" visible="false" managed="false"
+                      styleClass="import-summary">
+                    <SVGPath content="M 1 6 L 5 10 L 13 1" styleClass="summary-check"/>
+                    <Label fx:id="testerSummaryText" styleClass="summary-text" minWidth="0"/>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <Hyperlink fx:id="testerFilesToggle" text="Show files" styleClass="files-toggle"/>
+                </HBox>
+                <Label fx:id="testerError" styleClass="import-error" wrapText="true" visible="false" managed="false"/>
                 <TextField fx:id="testerFolderField" promptText="No tester folder selected"
                            editable="false" focusTraversable="false"
                            accessibleText="Tester files folder"/>
             </VBox>
-            <StackPane minHeight="135" VBox.vgrow="ALWAYS" styleClass="browser-body">
+            <StackPane fx:id="testerBrowser" minHeight="60" prefHeight="130" VBox.vgrow="ALWAYS"
+                       styleClass="browser-body">
                 <TreeView fx:id="testerFiles" editable="false" focusTraversable="false"
                           accessibleText="Imported tester folders and files" styleClass="file-tree"/>
-                <VBox fx:id="testerEmptyState" alignment="CENTER" spacing="10"
-                      mouseTransparent="true" styleClass="empty-state">
-                    <StackPane minWidth="48" maxWidth="48" minHeight="44" maxHeight="44" styleClass="empty-icon">
+                <HBox fx:id="testerEmptyState" alignment="CENTER_LEFT" spacing="14" maxHeight="-Infinity"
+                      StackPane.alignment="TOP_LEFT" mouseTransparent="true" styleClass="empty-state">
+                    <StackPane minWidth="40" maxWidth="40" minHeight="36" maxHeight="36" styleClass="empty-icon">
                         <SVGPath content="M 3 7 H 12 L 15 10 H 29 V 25 H 3 Z M 3 10 H 29" styleClass="folder-icon"/>
                     </StackPane>
-                    <Label text="No tester files imported" styleClass="empty-title"/>
-                    <Label text="Your tester folder and its files will appear here."
-                           wrapText="true" maxWidth="310" styleClass="empty-description"/>
-                </VBox>
+                    <VBox spacing="2" minWidth="0" HBox.hgrow="ALWAYS">
+                        <Label text="No tester files imported" styleClass="empty-title" wrapText="true"/>
+                        <Label text="Your tester folder and its files will appear here." wrapText="true" styleClass="empty-description"/>
+                    </VBox>
+                </HBox>
             </StackPane>
         </VBox>
 
@@ -70,37 +85,55 @@
                     <Region HBox.hgrow="ALWAYS"/>
                     <Button fx:id="submissionImportButton" text="Import folder" minWidth="120"
                             styleClass="import-button"
+                            accessibleText="Import or change the student submissions folder"
                             onAction="#importSubmissions"/>
                 </HBox>
-                <Label text="Select the submission folder."
-                       styleClass="muted" wrapText="true"/>
+                <HBox fx:id="submissionSummary" alignment="CENTER_LEFT" spacing="8" visible="false" managed="false"
+                      styleClass="import-summary">
+                    <SVGPath content="M 1 6 L 5 10 L 13 1" styleClass="summary-check"/>
+                    <Label fx:id="submissionSummaryText" styleClass="summary-text" minWidth="0"/>
+                    <Region HBox.hgrow="ALWAYS"/>
+                    <Hyperlink fx:id="submissionFilesToggle" text="Show files" styleClass="files-toggle"/>
+                </HBox>
+                <Label fx:id="submissionError" styleClass="import-error" wrapText="true" visible="false" managed="false"/>
                 <TextField fx:id="submissionFolderField" promptText="No submissions folder selected"
                            editable="false" focusTraversable="false"
                            accessibleText="Student submissions folder"/>
             </VBox>
-            <StackPane minHeight="135" VBox.vgrow="ALWAYS" styleClass="browser-body">
+            <StackPane fx:id="submissionBrowser" minHeight="60" prefHeight="130" VBox.vgrow="ALWAYS"
+                       styleClass="browser-body">
                 <TreeView fx:id="submissionFiles" editable="false" focusTraversable="false"
                           accessibleText="Imported student folders and submission files" styleClass="file-tree"/>
-                <VBox fx:id="submissionEmptyState" alignment="CENTER" spacing="10"
-                      mouseTransparent="true" styleClass="empty-state">
-                    <StackPane minWidth="48" maxWidth="48" minHeight="44" maxHeight="44" styleClass="empty-icon">
-                        <SVGPath content="M 4 7 H 13 L 16 10 H 29 V 26 H 4 Z M 4 10 H 29 M 1 4 H 10 L 13 7"
-                                 styleClass="folder-icon"/>
+                <HBox fx:id="submissionEmptyState" alignment="CENTER_LEFT" spacing="14" maxHeight="-Infinity"
+                      StackPane.alignment="TOP_LEFT" mouseTransparent="true" styleClass="empty-state">
+                    <StackPane minWidth="40" maxWidth="40" minHeight="36" maxHeight="36" styleClass="empty-icon">
+                        <SVGPath content="M 4 7 H 13 L 16 10 H 29 V 26 H 4 Z M 4 10 H 29 M 1 4 H 10 L 13 7" styleClass="folder-icon"/>
                     </StackPane>
-                    <Label text="No student submissions imported" styleClass="empty-title"/>
-                    <Label text="Student folders and their submitted files will appear here."
-                           wrapText="true" maxWidth="310" styleClass="empty-description"/>
-                </VBox>
+                    <VBox spacing="2" minWidth="0" HBox.hgrow="ALWAYS">
+                        <Label text="No student submissions imported" styleClass="empty-title" wrapText="true"/>
+                        <Label text="Student folders and their submitted files will appear here." wrapText="true" styleClass="empty-description"/>
+                    </VBox>
+                </HBox>
             </StackPane>
         </VBox>
     </HBox>
 
-    <HBox spacing="20" alignment="CENTER_LEFT" styleClass="run-toolbar">
+    <HBox fx:id="runToolbar" spacing="20" alignment="CENTER_LEFT" styleClass="run-toolbar">
         <VBox spacing="4">
-            <Label text="Prepare a grading run" styleClass="section-title"/>
+            <Label fx:id="runTitle" text="Prepare a grading run" styleClass="section-title"/>
             <Label fx:id="runReadinessText" text="Import both folders to get started." styleClass="muted"/>
         </VBox>
         <Region HBox.hgrow="ALWAYS"/>
+        <VBox fx:id="progressBox" spacing="4" alignment="CENTER_LEFT" visible="false" managed="false">
+            <ProgressBar fx:id="gradingProgress" prefWidth="240" progress="0"/>
+            <Label fx:id="progressText" styleClass="muted"/>
+        </VBox>
+        <Button fx:id="cancelButton" text="Cancel" visible="false" managed="false"
+                styleClass="score-sheet-button" onAction="#cancelGrading"
+                accessibleText="Stop the grading run; marks from before it are kept"/>
+        <Button fx:id="regradeButton" text="Regrade selected" disable="true"
+                styleClass="score-sheet-button" onAction="#regradeSelected"
+                accessibleText="Grade the student selected in the results table again"/>
         <Button fx:id="runGradingButton" text="Run grading" onAction="#runGrading"
                 disable="true" minWidth="166" graphicTextGap="10" styleClass="run-button">
             <graphic>
@@ -109,29 +142,41 @@
         </Button>
     </HBox>
 
-    <VBox minHeight="210" prefHeight="250" VBox.vgrow="ALWAYS" styleClass="console-panel">
+    <VBox minHeight="220" prefHeight="420" VBox.vgrow="ALWAYS" styleClass="console-panel">
         <HBox alignment="CENTER_LEFT" spacing="20" styleClass="console-heading">
-            <VBox spacing="4">
-                <Label text="Findings &amp; reports" styleClass="console-title"/>
-                <Label text="Compilation, execution, and grading results" styleClass="console-description"/>
-            </VBox>
+            <Label text="Results &amp; reports" minWidth="-Infinity" styleClass="console-title"/>
             <Region HBox.hgrow="ALWAYS"/>
-            <Button fx:id="scoreSheetImportButton" text="Import score sheet"
+            <Button fx:id="scoreSheetImportButton" minWidth="-Infinity" text="Import score sheet"
                     styleClass="score-sheet-button" onAction="#importScoreSheet"
                     accessibleText="Import the score sheet CSV to fill with totals"/>
-            <Button fx:id="writeScoresButton" text="Write scores" disable="true"
+            <Button fx:id="writeScoresButton" minWidth="-Infinity" text="Save filled sheet" disable="true"
                     styleClass="score-sheet-button" onAction="#writeScoresToSheet"
-                    accessibleText="Write each student's total into the imported score sheet"/>
-            <Button fx:id="saveReportsButton" text="Save reports" disable="true"
+                    accessibleText="Save a copy of the imported score sheet with each student's total filled in"/>
+            <Button fx:id="saveReportsButton" minWidth="-Infinity" text="Save reports" disable="true"
                     styleClass="score-sheet-button" onAction="#saveReports"
                     accessibleText="Save the latest grading attempt's PDF reports as a ZIP file"/>
-            <Button fx:id="resolveIssuesButton" text="Resolve issues" visible="false" managed="false"
+            <Button fx:id="resolveIssuesButton" minWidth="-Infinity" text="Resolve issues" visible="false" managed="false"
                     styleClass="resolution-button" onAction="#resolveSubmissionIssues"/>
-            <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"/>
+            <Label fx:id="consoleStatus" text="Waiting for an import" styleClass="console-description"
+                   minWidth="0" maxWidth="320" textOverrun="ELLIPSIS"/>
         </HBox>
-        <TextArea fx:id="findingsConsole" promptText="Validation findings will appear here after import."
-                  editable="false" wrapText="true" focusTraversable="false"
-                  accessibleText="Grading console: findings and reports"
-                  styleClass="console" minHeight="140" VBox.vgrow="ALWAYS"/>
+        <HBox fx:id="statsHolder" styleClass="stats-strip"/>
+        <SplitPane fx:id="resultsSplit" dividerPositions="0.7" VBox.vgrow="ALWAYS" styleClass="results-split">
+            <TabPane fx:id="consoleTabs" tabClosingPolicy="UNAVAILABLE" minHeight="90" styleClass="student-tabs">
+                <Tab fx:id="studentsTab" text="All students">
+                    <StackPane fx:id="resultsHolder" minHeight="90"/>
+                </Tab>
+                <Tab fx:id="similarityTab" text="Similar answers">
+                    <StackPane fx:id="similarityHolder"/>
+                </Tab>
+                <Tab fx:id="activityTab" text="Activity log">
+                    <TextArea fx:id="findingsConsole"
+                              promptText="Validation findings and the grading log will appear here."
+                              editable="false" wrapText="false" focusTraversable="false"
+                              accessibleText="Grading console: findings and reports" styleClass="console"/>
+                </Tab>
+            </TabPane>
+            <StackPane fx:id="detailHolder" minWidth="220"/>
+        </SplitPane>
     </VBox>
 </VBox>
