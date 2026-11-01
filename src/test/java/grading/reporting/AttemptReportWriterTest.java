@@ -158,7 +158,7 @@ class AttemptReportWriterTest {
                 Map.of(), List.of());
         // a violation without its rule would break the style section; the report must survive it
         StudentStyleResult brokenStyle = new StudentStyleResult("carol", List.of(new FileStyleResult("Q1a.java", true,
-                List.of(new StyleViolation(1, 1, null, "Problem.", "code")), 0, "")), OptionalDouble.of(9), 10,
+                List.of(new StyleViolation(1, null, "Problem.", "code")), 0, "")), OptionalDouble.of(9), 10,
                 List.of());
 
         GradingSettings settings = GradingSettings.current();

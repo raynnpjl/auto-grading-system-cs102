@@ -82,7 +82,7 @@ public final class SimilarityChecker {
         }
         boolean flagged = first.size() >= settings.minTokens() && second.size() >= settings.minTokens();
         return Optional.of(new SimilarityPair(questionId, firstName, secondName, screen.score(),
-                score.score(), first.size(), second.size(), lines(first, score.matches(), true),
+                score.score(), lines(first, score.matches(), true),
                 lines(second, score.matches(), false), flagged));
     }
 

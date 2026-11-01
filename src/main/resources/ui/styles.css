@@ -12,12 +12,6 @@
     -fx-text-fill: #243248;
 }
 
-.eyebrow {
-    -fx-font-size: 11px;
-    -fx-font-weight: bold;
-    -fx-text-fill: #6b7b91;
-}
-
 .title {
     -fx-font-size: 30px;
     -fx-font-weight: bold;
@@ -65,19 +59,6 @@
     -fx-font-weight: bold;
 }
 
-.browser-heading {
-    -fx-padding: 10 20;
-    -fx-background-color: #f6f8fb;
-    -fx-border-color: #e7ecf2;
-    -fx-border-width: 1 0 1 0;
-}
-
-.browser-label {
-    -fx-font-size: 11px;
-    -fx-font-weight: bold;
-    -fx-text-fill: #6c7a8f;
-}
-
 .browser-body {
     -fx-background-color: #fcfdff;
     -fx-background-radius: 0 0 10 10;
@@ -91,7 +72,7 @@
 }
 
 .empty-state {
-    -fx-padding: 16;
+    -fx-padding: 14 18;
 }
 
 .empty-icon {
@@ -114,8 +95,7 @@
 
 .empty-description {
     -fx-font-size: 12px;
-    -fx-text-fill: #7b8aa0;
-    -fx-text-alignment: center;
+    -fx-text-fill: #5d6d84;
 }
 
 .run-toolbar {
@@ -144,7 +124,7 @@
     -fx-opacity: 0.75;
 }
 
-.run-button,
+/* Both import buttons are always teal; Run grading is secondary until it is the next step. */
 .import-button {
     -fx-padding: 12 20;
     -fx-background-color: #2e686a;
@@ -157,6 +137,35 @@
 }
 
 .import-button:pressed {
+    -fx-background-color: #245759;
+}
+
+.run-button {
+    -fx-padding: 12 20;
+    -fx-background-color: #e3eeee;
+    -fx-text-fill: #1f4f51;
+    -fx-cursor: hand;
+}
+
+.run-button:hover {
+    -fx-background-color: #d1e4e4;
+}
+
+.run-button:pressed {
+    -fx-background-color: #c1dada;
+}
+
+/* The one next step of the workflow, moved from button to button by the controller. */
+.button.primary {
+    -fx-background-color: #2e686a;
+    -fx-text-fill: white;
+}
+
+.button.primary:hover {
+    -fx-background-color: #397c7e;
+}
+
+.button.primary:pressed {
     -fx-background-color: #245759;
 }
 
@@ -207,6 +216,10 @@
 }
 
 .play-icon {
+    -fx-fill: #1f4f51;
+}
+
+.primary .play-icon {
     -fx-fill: white;
 }
 
@@ -371,13 +384,128 @@
     -fx-fill: #2f8f5b;
 }
 
-/* Results table: the filter above it, and the reason a student needs checking */
-.results-filter {
-    -fx-padding: 8 12;
+/* Results table: the reason a student needs checking */
+
+.review-reason {
+    -fx-text-fill: #6e4100;
+}
+
+/* Summary numbers above the student list */
+.stats-strip {
+    -fx-padding: 12;
+    -fx-background-color: white;
+}
+
+.stat-tile {
+    -fx-padding: 10 14;
+    -fx-background-color: #f6f8fb;
+    -fx-background-radius: 8;
+}
+
+.stat-name {
+    -fx-font-size: 12px;
+    -fx-text-fill: #52637a;
+}
+
+.stat-value {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #243248;
+}
+
+.stat-value.stat-attention {
+    -fx-text-fill: #8a4b00;
+}
+
+/* Tabs for the student lists, the similar answers and the log */
+.student-tabs > .tab-header-area > .tab-header-background {
     -fx-background-color: white;
     -fx-border-color: transparent transparent #e7ecf2 transparent;
 }
 
-.review-reason {
-    -fx-text-fill: #6e4100;
+.student-tabs > .tab-header-area {
+    -fx-padding: 0 8;
+}
+
+.student-tabs .tab {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 8 12;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 2 0;
+}
+
+.student-tabs .tab:selected {
+    -fx-border-color: transparent transparent #2e686a transparent;
+}
+
+.student-tabs .tab .tab-label {
+    -fx-text-fill: #52637a;
+}
+
+.student-tabs .tab:selected .tab-label {
+    -fx-text-fill: #243248;
+    -fx-font-weight: bold;
+}
+
+.student-tabs > .tab-content-area {
+    -fx-background-color: white;
+}
+
+/* No focus outlines: the tabs, lists and log keep their normal look when clicked or tabbed to. */
+.student-tabs:focused > .tab-header-area > .headers-region > .tab:selected .focus-indicator {
+    -fx-border-color: transparent;
+}
+
+/* The Activity log sits on the white tab area, so it draws its own dark background. */
+.console,
+.console .content {
+    -fx-background-color: #142033;
+}
+
+/* A folder that was not accepted: said in the panel it was chosen for. */
+.import-error {
+    -fx-text-fill: #a33a2c;
+    -fx-font-weight: bold;
+}
+
+/* Student details: the pane's own viewport is white like the other cards, and code in feedback is monospace. */
+.detail-pane > .viewport {
+    -fx-background-color: white;
+}
+
+.feedback-text {
+    -fx-fill: #243248;
+}
+
+.feedback-code {
+    -fx-font-family: monospace;
+    -fx-font-size: 12px;
+    -fx-fill: #1f4f51;
+}
+
+/* After grading the run card is one slim row. */
+.run-toolbar.compact {
+    -fx-padding: 10 20;
+}
+
+.run-toolbar.compact .button {
+    -fx-padding: 8 16;
+}
+
+/* A teal button, while it cannot be pressed yet, looks as disabled as every other button. */
+.button.primary:disabled,
+.import-button:disabled {
+    -fx-background-color: #e3eeee;
+    -fx-text-fill: #1f4f51;
+}
+
+.primary:disabled .play-icon {
+    -fx-fill: #1f4f51;
+}
+
+/* A selected student is pale teal, whether or not the table has focus, so it never looks disabled. */
+.table-view {
+    -fx-selection-bar: #d3e7e7;
+    -fx-selection-bar-non-focused: #d3e7e7;
 }

@@ -47,6 +47,13 @@ public record GradingSettings(
         return CURRENT;
     }
 
+    /** These settings with the attempt reports written into another folder. */
+    public GradingSettings withReportsFolder(Path folder) {
+        return new GradingSettings(compileTimeout, executionTimeout, parallelStudents, maxMemoryMegabytes,
+                maxOutputBytes, maxJavaFileBytes, maxZipBytes, maxZipEntries, emailDomain, maxTesterFileBytes,
+                javaRelease, style, penalties, similarity, folder);
+    }
+
     static GradingSettings load(ConfigFile file) {
         return new GradingSettings(
                 Duration.ofSeconds(file.positiveNumber("grading.compile-timeout-seconds")),

@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.zip.ZipInputStream;
 
 /** Operations on whole folder trees. */
@@ -15,6 +17,8 @@ public final class FileTrees {
 
     /** The buffer size for copying streams. */
     public static final int BUFFER_BYTES = 8192;
+
+    private static final Logger LOG = Logger.getLogger(FileTrees.class.getName());
 
     private FileTrees() {
     }
@@ -61,5 +65,14 @@ public final class FileTrees {
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    /** Deletes like {@link #delete(Path)}, but only logs a failure: for cleanup that must not stop the work. */
+    public static void deleteQuietly(Path root) {
+        try {
+            delete(root);
+        } catch (IOException exception) {
+            LOG.log(Level.WARNING, "Could not delete " + root, exception);
+        }
     }
 }

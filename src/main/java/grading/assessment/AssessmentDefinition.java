@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalDouble;
 import java.util.function.Function;
 
 /**
@@ -68,6 +69,14 @@ public final class AssessmentDefinition {
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("Unknown assessment tester: " + filename));
     }
 
+    /** The most a student can score on the whole assessment; empty unless every question states its marks. */
+    public static OptionalDouble totalMarks() {
+        if (QUESTIONS.stream().anyMatch(question -> question.marks().isEmpty())) {
+            return OptionalDouble.empty();
+        }
+        return OptionalDouble.of(QUESTIONS.stream().mapToDouble(question -> question.marks().getAsDouble()).sum());
+    }
+
     private static Map<String, String> filesByFolder(Function<Question, List<String>> select) {
         Map<String, String> files = new LinkedHashMap<>();
         QUESTIONS.forEach(question -> select.apply(question).forEach(name -> files.put(name, question.folder())));
@@ -86,12 +95,18 @@ public final class AssessmentDefinition {
                 throw new IllegalStateException(prefix + "sources in assessment.properties lists no files");
             }
             return new Question(id, config.text(prefix + "folder"), sources,
-                    config.list(prefix + "support-classes"), config.list(prefix + "runtime-files"));
+                    config.list(prefix + "support-classes"), config.list(prefix + "runtime-files"),
+                    config.optionalNonNegativeDecimal(prefix + "marks"));
         }).toList();
     }
 
+    /**
+     * One question part of the assessment.
+     *
+     * @param marks the most a student can score on it; empty when assessment.properties does not say
+     */
     public record Question(String id, String folder, List<String> sources,
-            List<String> supportClasses, List<String> runtimeFiles) {
+            List<String> supportClasses, List<String> runtimeFiles, OptionalDouble marks) {
         public Question {
             sources = List.copyOf(sources);
             supportClasses = List.copyOf(supportClasses);

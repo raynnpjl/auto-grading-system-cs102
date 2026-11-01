@@ -197,9 +197,12 @@ public final class StudentReportFormatter {
         StringBuilder text = new StringBuilder("| Part | Marks |\n|---|---|\n");
         score.questionScores().forEach((question, marks) ->
                 text.append(PlainLanguage.row(question, PlainLanguage.marks(marks))));
-        text.append(PlainLanguage.row("**Tester marks**", "**" + PlainLanguage.marks(score.testerMarks()) + "**"))
-                .append(PlainLanguage.row("Style penalty", "-" + PlainLanguage.marks(score.stylePenalty())))
-                .append(PlainLanguage.row("**Final mark**", "**" + PlainLanguage.marks(score.finalMark()) + "**"))
+        text.append(PlainLanguage.row("**Tester marks**", "**" + PlainLanguage.marks(score.testerMarks()) + "**"));
+        // The penalty row only appears when style can change the mark.
+        if (!penalties.none()) {
+            text.append(PlainLanguage.row("Style penalty", "-" + PlainLanguage.marks(score.stylePenalty())));
+        }
+        text.append(PlainLanguage.row("**Final mark**", "**" + PlainLanguage.marks(score.finalMark()) + "**"))
                 .append('\n');
         if (penalties.none()) {
             text.append("No penalties are configured: style is reported only and does not change the mark.\n");

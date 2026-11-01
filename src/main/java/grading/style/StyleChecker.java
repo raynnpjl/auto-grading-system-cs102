@@ -154,8 +154,8 @@ public final class StyleChecker {
             if (event.getLine() > 0 && keptLines.contains(event.getLine())) {
                 continue;
             }
-            violations.add(new StyleViolation(event.getLine(), event.getColumn(), rules.rule(event.getModuleId()),
-                    event.getMessage(), codeAt(lines, event.getLine())));
+            violations.add(new StyleViolation(event.getLine(), rules.rule(event.getModuleId()), event.getMessage(),
+                    codeAt(lines, event.getLine())));
         }
         return new FileStyleResult(fileName, true, violations, keptLines.size(), note);
     }

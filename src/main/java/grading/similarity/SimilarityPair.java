@@ -16,15 +16,12 @@ import java.util.stream.Collectors;
  * @param second         the other student's username
  * @param winnowing      the winnowing similarity, from 0 to 1
  * @param tiling         the Greedy String Tiling similarity, from 0 to 1; this is the reported similarity
- * @param firstTokens    how many tokens the first student's answer has, after normalization
- * @param secondTokens   how many tokens the second student's answer has
  * @param firstLines     the first student's lines that match, as submitted
  * @param secondLines    the second student's lines that match
  * @param flagged        true when both students should be checked by a person
  */
 public record SimilarityPair(String questionId, String first, String second, double winnowing, double tiling,
-        int firstTokens, int secondTokens, List<LineRange> firstLines, List<LineRange> secondLines,
-        boolean flagged) {
+        List<LineRange> firstLines, List<LineRange> secondLines, boolean flagged) {
 
     /** Lines of one file, such as Q2a.java lines 12 to 40. */
     public record LineRange(String file, int from, int to) {

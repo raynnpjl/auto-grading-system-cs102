@@ -14,10 +14,10 @@ import java.util.Map;
  * @param username    the student
  * @param status      where the student is in the run
  * @param finished    whether the student is done, graded or skipped
- * @param formatFixed whether the folder or headers were corrected automatically
  * @param scores      the marks of each question part graded so far, in question order
- * @param issues      the submission problems that were not corrected
- * @param flags       notes that need a person's attention, such as a similar answer
+ * @param issues      the submission's folder and file problems that were not corrected
+ * @param corrections what was corrected automatically in the folder or headers
+ * @param flags       answers very similar to another student's, which need a person's attention
  * @param feedback    explanations of the student's mistakes
  * @param problems    each question part that could not be graded normally, with why, in question order
  */
@@ -25,19 +25,25 @@ public record StudentProgress(
         String username,
         GradingStatus status,
         boolean finished,
-        boolean formatFixed,
         Map<String, Double> scores,
         List<String> issues,
-        List<String> flags,
+        List<String> corrections,
+        List<SimilarAnswer> flags,
         List<Feedback> feedback,
         Map<String, QuestionGradingResult.Status> problems) {
 
     public StudentProgress {
         scores = Collections.unmodifiableMap(new LinkedHashMap<>(scores));
         issues = List.copyOf(issues);
+        corrections = List.copyOf(corrections);
         flags = List.copyOf(flags);
         feedback = List.copyOf(feedback);
         problems = Collections.unmodifiableMap(new LinkedHashMap<>(problems));
+    }
+
+    /** Whether the folder or headers were corrected automatically. */
+    public boolean formatFixed() {
+        return !corrections.isEmpty();
     }
 
     /** The sum of the marks graded so far. */

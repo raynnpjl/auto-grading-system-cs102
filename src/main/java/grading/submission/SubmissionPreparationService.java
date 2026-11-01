@@ -141,7 +141,8 @@ public final class SubmissionPreparationService {
                     questionFiles(sources, dependencies), findings, identity, normalization.corrections(),
                     normalization.originals());
         } finally {
-            deleteQuietly(staging);
+            // A cleanup problem must not turn a usable submission into a failed batch item.
+            FileTrees.deleteQuietly(staging);
         }
     }
 
@@ -326,14 +327,6 @@ public final class SubmissionPreparationService {
         Path normalizedChild = child.toAbsolutePath().normalize();
         if (!normalizedChild.startsWith(normalizedParent) || normalizedChild.equals(normalizedParent)) {
             throw new IOException("Refusing to write outside the normalization workspace");
-        }
-    }
-
-    private static void deleteQuietly(Path folder) {
-        try {
-            FileTrees.delete(folder);
-        } catch (IOException ignored) {
-            // A cleanup problem must not turn a usable submission into a failed batch item.
         }
     }
 

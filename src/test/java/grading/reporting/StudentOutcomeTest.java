@@ -14,8 +14,8 @@ class StudentOutcomeTest {
 
     @Test
     void similarityIsAReviewReasonForTheMarkerButNotInTheStudentsOwnReasons() {
-        SimilarityPair pair = new SimilarityPair("Q2a", "alice.2026", "bob.2026", 0.95, 0.91, 120, 118,
-                List.of(), List.of(), true);
+        SimilarityPair pair = new SimilarityPair("Q2a", "alice.2026", "bob.2026", 0.95, 0.91, List.of(), List.of(),
+                true);
         SubmissionValidationResult submission = new SubmissionValidationResult(Path.of("alice.2026.zip"),
                 "alice.2026", null, Map.of(), List.of());
 

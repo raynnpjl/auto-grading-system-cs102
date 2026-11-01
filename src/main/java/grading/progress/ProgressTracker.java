@@ -21,7 +21,6 @@ public final class ProgressTracker {
     private final Map<String, Row> rows = new LinkedHashMap<>();
     private final List<String> activity = new ArrayList<>();
     private final List<SimilarityPair> similarPairs = new ArrayList<>();
-    private boolean running;
     private Instant startedAt;
     private Instant endedAt;
     private String currentStudent = "";
@@ -36,7 +35,6 @@ public final class ProgressTracker {
         rows.clear();
         activity.clear();
         similarPairs.clear();
-        running = false;
         startedAt = null;
         endedAt = null;
         currentStudent = "";
@@ -47,11 +45,10 @@ public final class ProgressTracker {
                 row.status = GradingStatus.SKIPPED;
                 row.finished = true;
             }
-            // Shown next to the status: the folder or headers were corrected, never the student's code.
-            row.formatFixed = submission.correctedCount() > 0;
+            // Corrections change the folder or headers, never the student's code; the marker sees each one.
             submission.findings().stream()
-                    .filter(finding -> finding.severity() != FindingSeverity.INFO && !finding.corrected())
-                    .forEach(finding -> row.issues.add(finding.message()));
+                    .filter(finding -> finding.severity() != FindingSeverity.INFO)
+                    .forEach(finding -> (finding.corrected() ? row.corrections : row.issues).add(finding.message()));
             rows.put(submission.username(), row);
         }
     }
@@ -63,7 +60,6 @@ public final class ProgressTracker {
      */
     public synchronized void studentStarted(String username) {
         rows(username).status = GradingStatus.RUNNING;
-        running = true;
         if (startedAt == null) {
             startedAt = Instant.now();
         }
@@ -137,14 +133,14 @@ public final class ProgressTracker {
         rows.values().forEach(row -> row.flags.clear());
         for (SimilarityPair pair : pairs) {
             if (pair.flagged()) {
-                flag(pair.first(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.second());
-                flag(pair.second(), pair.questionId() + ": " + pair.percent() + "% similar to " + pair.first());
+                flag(pair.first(), new SimilarAnswer(pair.questionId(), pair.percent(), pair.second()));
+                flag(pair.second(), new SimilarAnswer(pair.questionId(), pair.percent(), pair.first()));
             }
         }
     }
 
     // A student no longer in the table, such as one renamed when their identity was confirmed, is skipped.
-    private void flag(String username, String note) {
+    private void flag(String username, SimilarAnswer note) {
         Row row = rows.get(username);
         if (row != null) {
             row.flags.add(note);
@@ -203,7 +199,6 @@ public final class ProgressTracker {
 
     /** Called when the whole batch has ended, successfully or not. Freezes the elapsed time. */
     public synchronized void finish() {
-        running = false;
         endedAt = Instant.now();
         currentStudent = "";
         currentStep = "";
@@ -216,7 +211,7 @@ public final class ProgressTracker {
      */
     public synchronized ProgressSnapshot snapshot() {
         long done = rows.values().stream().filter(row -> row.finished).count();
-        return new ProgressSnapshot(running, done, elapsedSeconds(), currentStudent, currentStep,
+        return new ProgressSnapshot(done, elapsedSeconds(), currentStudent, currentStep,
                 rows.values().stream().map(Row::snapshot).toList(), activity, similarPairs);
     }
 
@@ -236,12 +231,12 @@ public final class ProgressTracker {
     private static final class Row {
         final String username;
         GradingStatus status = GradingStatus.QUEUED;
-        boolean formatFixed;
         boolean finished;
         final Map<String, Double> scores = new LinkedHashMap<>();
         final Map<String, QuestionGradingResult.Status> problems = new LinkedHashMap<>();
         final List<String> issues = new ArrayList<>();
-        final List<String> flags = new ArrayList<>();
+        final List<String> corrections = new ArrayList<>();
+        final List<SimilarAnswer> flags = new ArrayList<>();
         List<Feedback> feedback = List.of();
 
         Row(String username) {
@@ -251,7 +246,7 @@ public final class ProgressTracker {
         // A flagged student needs review whatever their grading status was.
         StudentProgress snapshot() {
             GradingStatus shown = flags.isEmpty() ? status : GradingStatus.NEEDS_REVIEW;
-            return new StudentProgress(username, shown, finished, formatFixed, scores, issues, flags, feedback,
+            return new StudentProgress(username, shown, finished, scores, issues, corrections, flags, feedback,
                     problems);
         }
     }

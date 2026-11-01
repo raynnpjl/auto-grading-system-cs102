@@ -7,7 +7,6 @@ import java.util.List;
 /**
  * The state of a grading run at one moment, as plain data for whatever shows it.
  *
- * @param running        whether a student is being graded now
  * @param done           how many students have finished, including the skipped ones
  * @param elapsedSeconds how long the run has taken so far, or took
  * @param currentStudent the student being graded, or empty
@@ -17,7 +16,6 @@ import java.util.List;
  * @param similarPairs   the pairs of similar answers found by the plagiarism check
  */
 public record ProgressSnapshot(
-        boolean running,
         long done,
         long elapsedSeconds,
         String currentStudent,

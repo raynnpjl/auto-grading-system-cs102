@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.OptionalDouble;
 import java.util.Properties;
 
 /**
@@ -69,6 +70,12 @@ public final class ConfigFile {
     public List<String> list(String key) {
         String value = values.getProperty(key, "");
         return Arrays.stream(value.split(",")).map(String::strip).filter(item -> !item.isEmpty()).toList();
+    }
+
+    /** A number of zero or more, or empty when the setting is absent or blank. */
+    public OptionalDouble optionalNonNegativeDecimal(String key) {
+        String value = values.getProperty(key, "");
+        return value.isBlank() ? OptionalDouble.empty() : OptionalDouble.of(nonNegativeDecimal(key));
     }
 
     /** A number that is zero or more, such as a weight or a penalty. */
