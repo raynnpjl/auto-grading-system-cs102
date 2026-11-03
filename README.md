@@ -103,8 +103,8 @@ Every grading run is an *attempt* with its own folder, named after the time it s
 
 - `summary.pdf`: students needing a manual check listed first with the reasons, the other
   students, class statistics (marks, each question's pass rate, common style and submission
-  problems), and the configuration used: time limits, marks awarded per test case, penalties,
-  style rules and weights, and fingerprints of the style files, so results can be reproduced.
+  problems), and the configuration used: time limits, students graded at the same time, the
+  style checker, and the style rules and their weights.
 - `students/<username>.pdf`: the student's identity (username, ZIP or folder name, name and email
   from the Java headers), structure problems and every automatic correction (original path to
   corrected path), each question's test cases (passed, failed or timed out, with expected and

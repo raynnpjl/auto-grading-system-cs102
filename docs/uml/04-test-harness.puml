@@ -1,0 +1,179 @@
+@startuml
+' 4. Test harness: compiling and running the testers safely
+' Each member starts with <U+00A0> (an invisible space) so that every renderer, draw.io included,
+' prints the visibility markers + - # ~ as text instead of icons.
+top to bottom direction
+set separator none
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam defaultFontSize 12
+skinparam titleFontSize 20
+skinparam nodesep 25
+skinparam ranksep 35
+skinparam padding 2
+skinparam ArrowColor #3A3A3A
+skinparam ArrowThickness 1.2
+skinparam classBorderColor #2E686A
+skinparam classBackgroundColor #FFFFFF
+skinparam classHeaderBackgroundColor #E3EEEE
+skinparam packageBorderColor #7FA3A4
+skinparam packageBackgroundColor #FAFCFC
+skinparam packageFontColor #2E686A
+skinparam class {
+  BackgroundColor<<external>> #F2F2F2
+  BorderColor<<external>> #A0A0A0
+  FontColor<<external>> #555555
+}
+hide empty members
+hide <<external>> members
+hide <<external>> stereotype
+hide <<external>> circle
+
+title 4. Test harness: compiling and running the testers safely
+
+package "grading.tester" {
+  class TesterFileValidationService {
+    <U+00A0>- maxTesterFileBytes : long
+    <U+00A0>+ TesterFileValidationService(settings : GradingSettings)
+    <U+00A0>+ validate(folder : Path) : TesterValidationResult
+  }
+
+  class TesterValidationResult <<record>> {
+    <U+00A0>- source : Path
+    <U+00A0>- testerFiles : Map<String, Path>
+    <U+00A0>- findings : List<SubmissionFinding>
+    <U+00A0>+ isValid() : boolean
+  }
+}
+
+package "grading.execution" {
+  class JavaGradingService {
+    <U+00A0>- limits : GradingLimits
+    <U+00A0>- runner : ProcessRunner
+    <U+00A0>- compiler : TesterCompiler
+    <U+00A0>- testerRunner : TesterRunner
+    <U+00A0>- timeoutRecovery : TimeoutRecovery
+    <U+00A0>- progress : ProgressTracker
+    <U+00A0>+ JavaGradingService(settings : GradingSettings, log : Consumer<String>, progress : ProgressTracker)
+    <U+00A0>+ gradeBatch(submissions : List<SubmissionValidationResult>, testers : TesterValidationResult) : List<StudentGradingResult>
+    <U+00A0>+ gradeStudent(submission : SubmissionValidationResult, testers : TesterValidationResult) : StudentGradingResult
+    <U+00A0>+ gradeQuestion(files : QuestionFiles, testerFile : Path) : QuestionGradingResult
+  }
+
+  class BatchGrader {
+    <U+00A0>- parallelStudents : int
+    <U+00A0>~~ grade(submissions : List<SubmissionValidationResult>, grader : StudentGrader) : List<StudentGradingResult>
+  }
+
+  class TesterCompiler {
+    <U+00A0>- limits : GradingLimits
+    <U+00A0>- runner : ProcessRunner
+    <U+00A0>~~ compile(files : QuestionFiles, testerFile : Path) : CompilationResult
+  }
+
+  class TesterRunner {
+    <U+00A0>- limits : GradingLimits
+    <U+00A0>- runner : ProcessRunner
+    <U+00A0>~~ run(compilation : CompilationResult) : QuestionGradingResult
+  }
+
+  class TimeoutRecovery {
+    <U+00A0>- timeout : Duration
+    <U+00A0>~~ recover(files : QuestionFiles, testerFile : Path, timedOut : QuestionGradingResult) : QuestionGradingResult
+  }
+
+  class TesterTestCases {
+    <U+00A0>- source : String
+    {static} <U+00A0>~~ parse(source : String) : Optional<TesterTestCases>
+    <U+00A0>~~ unfinishedCase(stdout : String, skipped : Set<Integer>) : OptionalInt
+    <U+00A0>~~ withSkipped(descriptions : Map<Integer, String>) : String
+  }
+
+  interface ProcessRunner {
+    <U+00A0>+ run(command : List<String>, directory : Path, timeout : Duration) : ProcessResult
+  }
+
+  class BoundedProcessRunner {
+    <U+00A0>- maxOutputBytes : int
+    <U+00A0>+ run(command : List<String>, directory : Path, timeout : Duration) : ProcessResult
+  }
+
+  class GradingLimits <<record>> {
+    <U+00A0>- compileTimeout : Duration
+    <U+00A0>- executionTimeout : Duration
+    <U+00A0>- maxMemoryMegabytes : int
+    <U+00A0>- parallelStudents : int
+    {static} <U+00A0>~~ of(settings : GradingSettings) : GradingLimits
+  }
+
+  class CompilationResult <<record>> {
+    <U+00A0>- questionId : String
+    <U+00A0>- testerClass : String
+    <U+00A0>- workspace : Path
+    <U+00A0>- process : ProcessResult
+    <U+00A0>+ classesDirectory() : Path
+    <U+00A0>+ close() : void
+  }
+
+  class ProcessResult <<record>> {
+    <U+00A0>- status : Status
+    <U+00A0>- exitCode : int
+    <U+00A0>- stdout : String
+    <U+00A0>- stderr : String
+    <U+00A0>+ succeeded() : boolean
+  }
+
+  class QuestionGradingResult <<record>> {
+    <U+00A0>- questionId : String
+    <U+00A0>- status : Status
+    <U+00A0>- score : double
+    <U+00A0>- passedTests : int
+    <U+00A0>- failedTests : int
+  }
+
+  enum "QuestionGradingResult.Status" as QStatus {
+    GRADED
+    COMPILATION_ERROR
+    COMPILATION_TIMEOUT
+    EXECUTION_TIMEOUT
+    OUTPUT_LIMIT_EXCEEDED
+    RUNTIME_ERROR
+    INVALID_SCORE
+    MISSING_FILES
+  }
+
+  class StudentGradingResult <<record>> {
+    <U+00A0>- username : String
+    <U+00A0>- questions : List<QuestionGradingResult>
+    <U+00A0>+ totalScore() : double
+    <U+00A0>+ needsReview() : boolean
+  }
+}
+
+interface AutoCloseable <<external>>
+
+TesterFileValidationService ..> TesterValidationResult : creates
+JavaGradingService ..> TesterValidationResult
+JavaGradingService --> "1" GradingLimits
+JavaGradingService --> "1" TesterCompiler
+JavaGradingService --> "1" TesterRunner
+JavaGradingService --> "1" TimeoutRecovery
+JavaGradingService ..> BatchGrader : grades students in parallel
+JavaGradingService ..> StudentGradingResult : creates
+
+TesterCompiler --> "1" ProcessRunner
+TesterRunner --> "1" ProcessRunner
+ProcessRunner <|.. BoundedProcessRunner
+TesterCompiler ..> CompilationResult : creates
+TesterRunner ..> CompilationResult
+TesterRunner ..> QuestionGradingResult : creates
+TimeoutRecovery ..> TesterTestCases : skips the case that hung
+
+AutoCloseable <|.. CompilationResult
+CompilationResult --> "1" ProcessResult
+StudentGradingResult --> "*" QuestionGradingResult
+QuestionGradingResult +-- QStatus
+@enduml

@@ -58,7 +58,7 @@ class AttemptReportWriterTest {
         String summary = text(folder.resolve("summary.pdf"));
         assertTrue(summary.indexOf("bob") < summary.indexOf("alice"), "bob needs a manual check: " + summary);
         assertTrue(summary.contains("Manual check needed for 2"), summary);
-        assertTrue(summary.contains("Configuration used") && summary.contains("Penalties"), summary);
+        assertTrue(summary.contains("Configuration used") && summary.contains("Time limits"), summary);
         assertTrue(Files.exists(folder.resolve("students/alice.pdf")));
         assertTrue(Files.exists(folder.resolve("summary.pdf")));
 

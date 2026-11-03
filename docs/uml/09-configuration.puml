@@ -1,0 +1,135 @@
+@startuml
+' 9. Externalized configuration
+' Each member starts with <U+00A0> (an invisible space) so that every renderer, draw.io included,
+' prints the visibility markers + - # ~ as text instead of icons.
+top to bottom direction
+set separator none
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam defaultFontSize 12
+skinparam titleFontSize 20
+skinparam nodesep 25
+skinparam ranksep 35
+skinparam padding 2
+skinparam ArrowColor #3A3A3A
+skinparam ArrowThickness 1.2
+skinparam classBorderColor #2E686A
+skinparam classBackgroundColor #FFFFFF
+skinparam classHeaderBackgroundColor #E3EEEE
+skinparam packageBorderColor #7FA3A4
+skinparam packageBackgroundColor #FAFCFC
+skinparam packageFontColor #2E686A
+skinparam class {
+  BackgroundColor<<external>> #F2F2F2
+  BorderColor<<external>> #A0A0A0
+  FontColor<<external>> #555555
+}
+hide empty members
+hide <<external>> members
+hide <<external>> stereotype
+hide <<external>> circle
+
+title 9. Externalized configuration
+
+package "src/main/resources (copy into config/ to override)" as files {
+  class "grading.properties" as GradingProps <<file>> {
+    grading.execution-timeout-seconds = 5
+    grading.parallel-students = 4
+    penalty.style-per-violation = 0
+    similarity.threshold = 0.8
+    reports.folder = grading-reports
+  }
+  class "assessment.properties" as AssessmentProps <<file>> {
+    assessment.questions = Q1a,Q1b,Q2a,Q2b,Q3
+    question.Q1a.folder = Q1
+    question.Q1a.sources = Q1a.java
+    question.Q1a.marks = 3
+  }
+}
+
+package "grading.config" {
+  class ConfigFile {
+    <U+00A0>- name : String
+    <U+00A0>- values : Properties
+    {static} <U+00A0>+ load(name : String) : ConfigFile
+    <U+00A0>+ text(key : String) : String
+    <U+00A0>+ list(key : String) : List<String>
+    <U+00A0>+ positiveNumber(key : String) : long
+    <U+00A0>+ fraction(key : String) : double
+  }
+
+  class GradingSettings <<record>> {
+    <U+00A0>- compileTimeout : Duration
+    <U+00A0>- executionTimeout : Duration
+    <U+00A0>- parallelStudents : int
+    <U+00A0>- maxMemoryMegabytes : int
+    <U+00A0>- emailDomain : String
+    <U+00A0>- javaRelease : int
+    <U+00A0>- style : StyleSettings
+    <U+00A0>- penalties : PenaltySettings
+    <U+00A0>- similarity : SimilaritySettings
+    <U+00A0>- reportsFolder : Path
+    {static} <U+00A0>+ current() : GradingSettings
+    <U+00A0>+ withReportsFolder(folder : Path) : GradingSettings
+  }
+
+  class StyleSettings <<record>> {
+    <U+00A0>- checkstyleConfig : Path
+    <U+00A0>- rules : Path
+    <U+00A0>- templateFolder : Path
+    <U+00A0>- maxScore : double
+  }
+
+  class PenaltySettings <<record>> {
+    <U+00A0>- stylePerViolation : double
+    <U+00A0>- styleCap : double
+    <U+00A0>+ none() : boolean
+  }
+
+  class SimilaritySettings <<record>> {
+    <U+00A0>- threshold : double
+    <U+00A0>- screenThreshold : double
+    <U+00A0>- minTokens : int
+    <U+00A0>- kgramSize : int
+    <U+00A0>- windowSize : int
+  }
+}
+
+package "grading.assessment" {
+  class AssessmentDefinition {
+    {static} <U+00A0>+ questionFolders() : List<String>
+    {static} <U+00A0>+ testerFiles() : List<String>
+    {static} <U+00A0>+ forTester(filename : String) : Question
+    {static} <U+00A0>+ totalMarks() : OptionalDouble
+  }
+
+  class "AssessmentDefinition.Question" as Question <<record>> {
+    <U+00A0>- id : String
+    <U+00A0>- folder : String
+    <U+00A0>- sources : List<String>
+    <U+00A0>- supportClasses : List<String>
+    <U+00A0>- marks : OptionalDouble
+    <U+00A0>+ testerFilename() : String
+  }
+
+  class QuestionFiles <<record>> {
+    <U+00A0>- sources : List<Path>
+    <U+00A0>- supportClasses : List<Path>
+    <U+00A0>- runtimeFiles : List<Path>
+    <U+00A0>+ missingFiles(question : Question) : List<String>
+  }
+}
+
+ConfigFile ..> GradingProps : reads
+ConfigFile ..> AssessmentProps : reads
+GradingSettings ..> ConfigFile : loads
+AssessmentDefinition ..> ConfigFile : loads
+GradingSettings --> "1" StyleSettings
+GradingSettings --> "1" PenaltySettings
+GradingSettings --> "1" SimilaritySettings
+AssessmentDefinition +-- Question
+QuestionFiles ..> Question
+@enduml

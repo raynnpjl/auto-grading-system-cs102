@@ -1,0 +1,156 @@
+@startuml
+' 6. Feedback rules and style checking
+' Each member starts with <U+00A0> (an invisible space) so that every renderer, draw.io included,
+' prints the visibility markers + - # ~ as text instead of icons.
+top to bottom direction
+set separator none
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam defaultFontSize 12
+skinparam titleFontSize 20
+skinparam nodesep 25
+skinparam ranksep 35
+skinparam padding 2
+skinparam ArrowColor #3A3A3A
+skinparam ArrowThickness 1.2
+skinparam classBorderColor #2E686A
+skinparam classBackgroundColor #FFFFFF
+skinparam classHeaderBackgroundColor #E3EEEE
+skinparam packageBorderColor #7FA3A4
+skinparam packageBackgroundColor #FAFCFC
+skinparam packageFontColor #2E686A
+skinparam class {
+  BackgroundColor<<external>> #F2F2F2
+  BorderColor<<external>> #A0A0A0
+  FontColor<<external>> #555555
+}
+hide empty members
+hide <<external>> members
+hide <<external>> stereotype
+hide <<external>> circle
+
+title 6. Feedback rules and style checking
+
+package "grading.feedback" {
+  class FeedbackGenerator {
+    <U+00A0>- rules : List<FeedbackRule>
+    <U+00A0>- templates : Templates
+    <U+00A0>+ FeedbackGenerator(templates : Templates)
+    <U+00A0>+ forStudent(submission : SubmissionValidationResult, grading : StudentGradingResult) : List<Feedback>
+  }
+
+  interface FeedbackRule {
+    <U+00A0>+ apply(context : FeedbackContext) : List<Feedback>
+  }
+
+  class CompilationErrorRule
+  class StarterCodeRule
+  class MissingExceptionRule
+  class RuntimeExceptionRule
+  class TimeoutRule
+  class OutputLimitRule
+  class WrongOutputRule
+
+  class FeedbackContext {
+    <U+00A0>- result : QuestionGradingResult
+    <U+00A0>- cases : List<TestCaseResult>
+    <U+00A0>- sources : List<SourceFile>
+    <U+00A0>~~ method(methodName : String) : Optional<Located>
+    <U+00A0>~~ unexplainedFailures() : List<TestCaseResult>
+    <U+00A0>~~ explain(test : TestCaseResult) : void
+  }
+
+  class Feedback <<record>> {
+    <U+00A0>- questionId : String
+    <U+00A0>- kind : String
+    <U+00A0>- message : String
+    <U+00A0>- location : Optional<SourceLocation>
+    <U+00A0>+ text() : String
+  }
+}
+
+package "grading.style" {
+  class StyleChecker {
+    <U+00A0>- settings : StyleSettings
+    <U+00A0>- rules : StyleRules
+    <U+00A0>- templates : Templates
+    <U+00A0>+ StyleChecker(settings : StyleSettings)
+    <U+00A0>+ check(submission : SubmissionValidationResult) : StudentStyleResult
+    <U+00A0>+ rules() : StyleRules
+  }
+
+  class StyleRules {
+    <U+00A0>- rules : Map<String, Rule>
+    <U+00A0>- unchecked : List<UncheckedRule>
+    {static} <U+00A0>+ load(file : Path) : StyleRules
+    <U+00A0>+ rule(checkId : String) : Rule
+  }
+
+  class Templates {
+    <U+00A0>- folder : Path
+    <U+00A0>+ Templates(folder : Path)
+    <U+00A0>+ find(fileName : String) : Optional<Path>
+    <U+00A0>+ keptLines(fileName : String, studentLines : List<String>) : Set<Integer>
+  }
+
+  class StudentStyleResult <<record>> {
+    <U+00A0>- username : String
+    <U+00A0>- files : List<FileStyleResult>
+    <U+00A0>- score : OptionalDouble
+    <U+00A0>+ countedViolations() : int
+  }
+
+  class FileStyleResult <<record>> {
+    <U+00A0>- fileName : String
+    <U+00A0>- analysed : boolean
+    <U+00A0>- violations : List<StyleViolation>
+    <U+00A0>+ countedViolations() : int
+  }
+
+  class StyleViolation <<record>> {
+    <U+00A0>- line : int
+    <U+00A0>- rule : Rule
+    <U+00A0>- message : String
+  }
+}
+
+package "grading.style.checks" {
+  class InfiniteLoopExitCheck {
+    <U+00A0>+ visitToken(loop : DetailAST) : void
+  }
+  class InitializeAtDeclarationCheck {
+    <U+00A0>+ visitToken(declaration : DetailAST) : void
+  }
+  class LoopEdgeConditionalCheck {
+    <U+00A0>+ visitToken(loop : DetailAST) : void
+  }
+}
+
+abstract class AbstractCheck <<external>>
+
+FeedbackGenerator --> "7" FeedbackRule
+FeedbackGenerator --> "1" Templates
+FeedbackGenerator ..> FeedbackContext : creates per question
+FeedbackRule ..> FeedbackContext
+FeedbackRule ..> Feedback : returns
+FeedbackRule <|.. CompilationErrorRule
+FeedbackRule <|.. StarterCodeRule
+FeedbackRule <|.. MissingExceptionRule
+FeedbackRule <|.. RuntimeExceptionRule
+FeedbackRule <|.. TimeoutRule
+FeedbackRule <|.. OutputLimitRule
+FeedbackRule <|.. WrongOutputRule
+
+StyleChecker --> "1" StyleRules
+StyleChecker --> "1" Templates
+StyleChecker ..> StudentStyleResult : creates
+StudentStyleResult --> "*" FileStyleResult
+FileStyleResult --> "*" StyleViolation
+StyleChecker ..> AbstractCheck : runs through Checkstyle
+AbstractCheck <|-- InfiniteLoopExitCheck
+AbstractCheck <|-- InitializeAtDeclarationCheck
+AbstractCheck <|-- LoopEdgeConditionalCheck
+@enduml

@@ -1,0 +1,164 @@
+@startuml
+' 8. JavaFX user interface: view, controller and model
+' Each member starts with <U+00A0> (an invisible space) so that every renderer, draw.io included,
+' prints the visibility markers + - # ~ as text instead of icons.
+top to bottom direction
+set separator none
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam defaultFontSize 12
+skinparam titleFontSize 20
+skinparam nodesep 25
+skinparam ranksep 35
+skinparam padding 2
+skinparam ArrowColor #3A3A3A
+skinparam ArrowThickness 1.2
+skinparam classBorderColor #2E686A
+skinparam classBackgroundColor #FFFFFF
+skinparam classHeaderBackgroundColor #E3EEEE
+skinparam packageBorderColor #7FA3A4
+skinparam packageBackgroundColor #FAFCFC
+skinparam packageFontColor #2E686A
+skinparam class {
+  BackgroundColor<<external>> #F2F2F2
+  BorderColor<<external>> #A0A0A0
+  FontColor<<external>> #555555
+}
+hide empty members
+hide <<external>> members
+hide <<external>> stereotype
+hide <<external>> circle
+
+title 8. JavaFX user interface: view, controller and model
+
+package "ui" {
+  class AutoGradingApplication {
+    <U+00A0>- controller : MainViewController
+    <U+00A0>+ start(stage : Stage) : void
+    <U+00A0>+ stop() : void
+    {static} <U+00A0>+ main(args : String[]) : void
+  }
+
+  class "main-view.fxml" as Fxml <<view>>
+
+  class MainViewController {
+    <U+00A0>- session : GradingSession
+    <U+00A0>- progress : ProgressTracker
+    <U+00A0>- tasks : BackgroundTasks
+    <U+00A0>- reports : ReportSaving
+    <U+00A0>- scoreSheet : ScoreSheetActions
+    <U+00A0>- workflowButtons : WorkflowButtons
+    <U+00A0>- resultsTable : ResultsTable
+    <U+00A0>- detailPane : StudentDetailPane
+    <U+00A0>- statusPill : StatusPill
+    <U+00A0>~~ importTesterFiles(source : Path) : void
+    <U+00A0>~~ importSubmissions(source : Path) : void
+    <U+00A0>~~ importScoreSheet(source : Path) : void
+    <U+00A0>~~ saveReports(zipFile : Path) : void
+    <U+00A0>~~ shutdown() : void
+  }
+
+  class BackgroundTasks {
+    <U+00A0>- running : boolean
+    <U+00A0>~~ running() : boolean
+    <U+00A0>~~ <T> run(work : Callable<T>, name : String, succeeded : Consumer<T>, failed : Consumer<Throwable>) : void
+  }
+
+  class RunMonitor {
+    <U+00A0>- poller : Timeline
+    <U+00A0>~~ start() : void
+    <U+00A0>~~ stop() : void
+  }
+
+  class WorkflowButtons {
+    <U+00A0>- runGrading : Button
+    <U+00A0>- writeScores : Button
+    <U+00A0>- saveReports : Button
+    <U+00A0>~~ update(state : State) : void
+  }
+
+  class "WorkflowButtons.State" as State <<record>> {
+    <U+00A0>- busy : boolean
+    <U+00A0>- testersReady : boolean
+    <U+00A0>- submissionsReady : boolean
+    <U+00A0>- hasResults : boolean
+    {static} <U+00A0>~~ of(session : GradingSession, busy : boolean, hasSheet : boolean) : State
+    <U+00A0>~~ inputsReady() : boolean
+  }
+
+  class ReportSaving {
+    <U+00A0>- tasks : BackgroundTasks
+    <U+00A0>~~ downloadStudentReport(username : String, owner : Window) : void
+    <U+00A0>~~ saveAllReports(zipFile : Path) : void
+  }
+
+  class ScoreSheetActions {
+    <U+00A0>- updater : ScoreSheetUpdater
+    <U+00A0>- sheet : ScoreSheet
+    <U+00A0>~~ importSheet(source : Path, hasResults : boolean) : ActionResult
+    <U+00A0>~~ saveFilled(scores : ScoreSummary, confirmation : Predicate<ScoreSheetPreview>, target : Supplier<Optional<Path>>) : Optional<ActionResult>
+  }
+
+  class ActionResult <<record>> {
+    <U+00A0>- consoleText : String
+    <U+00A0>- statusText : String
+    <U+00A0>- consoleStatus : String
+  }
+
+  class ResultsTable {
+    <U+00A0>- table : TableView<StudentProgress>
+    <U+00A0>~~ update(snapshot : ProgressSnapshot) : void
+    <U+00A0>~~ selected() : Optional<StudentProgress>
+  }
+
+  class StudentDetailPane {
+    <U+00A0>- shown : StudentProgress
+    <U+00A0>~~ show(student : Optional<StudentProgress>, reportPresent : boolean) : void
+  }
+
+  class StatusPill {
+    <U+00A0>- tone : Tone
+    <U+00A0>~~ show(message : String) : void
+    <U+00A0>~~ showRunEnd(outcome : RunOutcome, toReview : long) : void
+  }
+}
+
+class Application <<external>>
+class GradingSession <<external>>
+class ProgressTracker <<external>>
+class ProgressSnapshot <<external>>
+
+Application <|-- AutoGradingApplication
+AutoGradingApplication ..> Fxml : loads
+Fxml ..> MainViewController : fx:controller
+AutoGradingApplication --> "1" MainViewController
+
+MainViewController --> "1" GradingSession
+MainViewController --> "1" ProgressTracker
+MainViewController --> "1" BackgroundTasks
+MainViewController --> "1" RunMonitor
+MainViewController --> "1" WorkflowButtons
+MainViewController --> "1" ReportSaving
+MainViewController --> "1" ScoreSheetActions
+MainViewController --> "1" ResultsTable
+MainViewController --> "1" StudentDetailPane
+MainViewController --> "1" StatusPill
+
+WorkflowButtons +-- State
+State ..> GradingSession
+ReportSaving --> "1" BackgroundTasks
+ReportSaving ..> ActionResult : creates
+ScoreSheetActions ..> ActionResult : creates
+RunMonitor ..> ProgressSnapshot : polls
+ResultsTable ..> ProgressSnapshot
+ProgressTracker ..> ProgressSnapshot : creates
+
+note bottom of StatusPill
+  Wording classes not shown: ConsoleText,
+  Readiness, FindingsText, GradingSummaryText,
+  ImportResults, StudentIssues.
+end note
+@enduml
