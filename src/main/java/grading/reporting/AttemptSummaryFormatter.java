@@ -4,26 +4,17 @@ package grading.reporting;
 import grading.assessment.AssessmentDefinition;
 import grading.common.Percent;
 import grading.config.GradingSettings;
-import grading.config.PenaltySettings;
-import grading.config.SimilaritySettings;
 import grading.execution.QuestionGradingResult;
 import grading.scoring.ScoreBreakdown;
 import grading.style.StudentStyleResult;
 import grading.style.StyleRules;
 import grading.submission.SubmissionFinding;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
-import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -34,8 +25,6 @@ import java.util.stream.Collectors;
 public final class AttemptSummaryFormatter {
 
     private static final int TOP_ITEMS = 5;
-    // Hex digits of a style file's SHA-256 shown in the summary; enough to tell versions apart.
-    private static final int FINGERPRINT_DIGITS = 16;
 
     private AttemptSummaryFormatter() {
     }
@@ -70,8 +59,11 @@ public final class AttemptSummaryFormatter {
         long review = attempt.students().stream().filter(student -> !student.reviewReasons().isEmpty()).count();
         return attempt.students().size() + " submission(s): " + graded + " graded, "
                 + (attempt.students().size() - graded) + " not graded. "
-                + (review == 0 ? "None needs a manual check.\n"
-                        : "Manual check needed for " + review + "; they are listed first.\n");
+                + (review == 0 ? "None needs a manual check.\n\n"
+                        : "Manual check needed for " + review + "; they are listed first.\n\n")
+                + "Questions: " + AssessmentDefinition.QUESTIONS.stream()
+                        .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
+                        .collect(Collectors.joining("; ")) + ".\n";
     }
 
     private static String needingReview(GradingAttempt attempt, Map<StudentOutcome, String> reportFiles) {
@@ -184,28 +176,13 @@ public final class AttemptSummaryFormatter {
 
     private static String configuration(GradingAttempt attempt) {
         GradingSettings settings = attempt.settings();
-        PenaltySettings penalties = settings.penalties();
         StringBuilder text = new StringBuilder()
                 .append("- Time limits: compiling ").append(settings.compileTimeout().toSeconds())
                 .append(" s, running a tester ").append(settings.executionTimeout().toSeconds()).append(" s.\n")
                 .append("- Students graded at the same time: ").append(settings.parallelStudents()).append(".\n")
-                .append("- Output kept per process stream: ").append(settings.maxOutputBytes()).append(" bytes.\n")
-                .append("- Marks per test case: awarded by each tester. ").append(observedMarks(attempt)).append('\n')
-                .append("- Penalties: ").append(PlainLanguage.marks(penalties.stylePerViolation()))
-                .append(" per counted style violation, capped at ").append(PlainLanguage.marks(penalties.styleCap()))
-                .append(penalties.none() ? " (none applied: style is reported only).\n" : ".\n")
-                .append("- Style: Checkstyle ").append(attempt.checkstyleVersion()).append(", configuration `")
-                .append(settings.style().checkstyleConfig()).append("` (SHA-256 ")
-                .append(fingerprint(settings.style().checkstyleConfig())).append("), rules `")
-                .append(settings.style().rules()).append("` (SHA-256 ").append(fingerprint(settings.style().rules()))
-                .append("), template `").append(settings.style().templateFolder()).append("`, maximum score ")
-                .append(PlainLanguage.marks(settings.style().maxScore())).append(".\n\n");
-        text.append(styleRules(attempt.styleRules())).append(similarity(settings.similarity()));
-        text.append("Questions: ");
-        text.append(AssessmentDefinition.QUESTIONS.stream()
-                .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
-                .collect(Collectors.joining("; "))).append(".\n");
-        return text.toString();
+                .append("- Style: checked with Checkstyle ").append(attempt.checkstyleVersion())
+                .append(", scored out of ").append(PlainLanguage.marks(settings.style().maxScore())).append(".\n\n");
+        return text.append(styleRules(attempt.styleRules())).toString();
     }
 
     // The style rules in effect with their weights, and the guide rules a person has to check.
@@ -226,32 +203,6 @@ public final class AttemptSummaryFormatter {
             text.append('\n');
         }
         return text.toString();
-    }
-
-    private static String similarity(SimilaritySettings similarity) {
-        return "Plagiarism check: reported at " + Percent.of(similarity.threshold())
-                + "% similarity, flagged when both answers have at least " + similarity.minTokens()
-                + " tokens; winnowing k = " + similarity.kgramSize() + ", w = " + similarity.windowSize()
-                + ", screening at " + Percent.of(similarity.screenThreshold())
-                + "%; Greedy String Tiling minimum match " + similarity.minMatchTokens() + " tokens.\n\n";
-    }
-
-    // The marks per passed test case that the testers actually awarded in this attempt.
-    private static String observedMarks(GradingAttempt attempt) {
-        StringBuilder text = new StringBuilder("Observed:");
-        for (AssessmentDefinition.Question question : AssessmentDefinition.QUESTIONS) {
-            Set<String> rates = results(attempt, question.id()).stream()
-                    .filter(result -> result.status() == QuestionGradingResult.Status.GRADED)
-                    .filter(result -> result.passedTests() > 0)
-                    .map(result -> PlainLanguage.marks(result.score() / result.passedTests()))
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            text.append(' ').append(question.id()).append(' ')
-                    .append(rates.isEmpty() ? "not observed" : rates.size() == 1 ? rates.iterator().next() + " per pass"
-                            : "varied")
-                    .append(';');
-        }
-        text.setLength(text.length() - 1);
-        return text.append('.').toString();
     }
 
     private static List<QuestionGradingResult> results(GradingAttempt attempt, String questionId) {
@@ -289,16 +240,5 @@ public final class AttemptSummaryFormatter {
     private static String link(StudentOutcome student, Map<StudentOutcome, String> reportFiles) {
         String file = reportFiles.get(student);
         return file == null ? "not written" : "[" + file + "](students/" + file + ")";
-    }
-
-    private static String fingerprint(Path file) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file));
-            return HexFormat.of().formatHex(digest).substring(0, FINGERPRINT_DIGITS);
-        } catch (IOException exception) {
-            return "file not readable";
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is required by every Java platform", exception);
-        }
     }
 }

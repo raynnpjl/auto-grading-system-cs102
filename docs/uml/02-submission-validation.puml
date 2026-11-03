@@ -1,0 +1,172 @@
+@startuml
+' 2. Submission intake, validation and correction
+' Each member starts with <U+00A0> (an invisible space) so that every renderer, draw.io included,
+' prints the visibility markers + - # ~ as text instead of icons.
+top to bottom direction
+set separator none
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+skinparam defaultFontName Helvetica
+skinparam defaultFontSize 12
+skinparam titleFontSize 20
+skinparam nodesep 25
+skinparam ranksep 35
+skinparam padding 2
+skinparam ArrowColor #3A3A3A
+skinparam ArrowThickness 1.2
+skinparam classBorderColor #2E686A
+skinparam classBackgroundColor #FFFFFF
+skinparam classHeaderBackgroundColor #E3EEEE
+skinparam packageBorderColor #7FA3A4
+skinparam packageBackgroundColor #FAFCFC
+skinparam packageFontColor #2E686A
+skinparam class {
+  BackgroundColor<<external>> #F2F2F2
+  BorderColor<<external>> #A0A0A0
+  FontColor<<external>> #555555
+}
+hide empty members
+hide <<external>> members
+hide <<external>> stereotype
+hide <<external>> circle
+
+title 2. Submission intake, validation and correction
+
+package "grading.submission" {
+  class SubmissionPreparationService {
+    <U+00A0>- zipExtractor : ZipExtractor
+    <U+00A0>- usernames : UsernameResolver
+    <U+00A0>- headers : StudentHeaders
+    <U+00A0>- checks : List<SubmissionCheck>
+    <U+00A0>+ SubmissionPreparationService(settings : GradingSettings)
+    <U+00A0>+ prepareBatch(input : Path, workspace : Path, progress : ImportProgress) : List<SubmissionValidationResult>
+  }
+
+  class SubmissionCorrectionService {
+    <U+00A0>- validationService : SubmissionPreparationService
+    <U+00A0>+ applyIdentity(existing : SubmissionValidationResult, identity : StudentIdentity, correctionWorkspace : Path) : SubmissionValidationResult
+  }
+
+  abstract class SubmissionSource {
+    <U+00A0>- path : Path
+    <U+00A0># SubmissionSource(path : Path)
+    <U+00A0>+ path() : Path
+    {abstract} <U+00A0>+ open(staging : Path, findings : List<SubmissionFinding>) : Path
+    {abstract} <U+00A0>+ expectedLocation(username : String, questionFolder : String, fileName : String) : String
+    {abstract} <U+00A0>+ checkUsernameFolder(content : Path, username : String) : Optional<SubmissionFinding>
+  }
+
+  class ZipSubmission {
+    <U+00A0>- extractor : ZipExtractor
+    <U+00A0>+ open(staging : Path, findings : List<SubmissionFinding>) : Path
+  }
+
+  class FolderSubmission {
+    <U+00A0>+ open(staging : Path, findings : List<SubmissionFinding>) : Path
+  }
+
+  class ZipExtractor {
+    <U+00A0>- maxUncompressedBytes : long
+    <U+00A0>- maxEntries : int
+    <U+00A0>~~ extract(zipFile : Path, destination : Path, findings : List<SubmissionFinding>) : void
+  }
+
+  interface SubmissionCheck {
+    <U+00A0>+ inspect(submission : SubmissionContext, findings : List<SubmissionFinding>) : void
+  }
+
+  class UsernameFolderCheck
+  class QuestionFolderCheck
+  class ExtraJavaFilesCheck
+
+  class SubmissionContext <<record>> {
+    <U+00A0>- source : SubmissionSource
+    <U+00A0>- content : Path
+    <U+00A0>- username : String
+    <U+00A0>- javaFiles : List<Path>
+  }
+
+  class UsernameResolver {
+    <U+00A0>~~ resolve(submission : Path, identity : HeaderIdentity, findings : List<SubmissionFinding>) : String
+  }
+
+  class StudentHeaders {
+    <U+00A0>~~ discover(javaFiles : List<Path>, findings : List<SubmissionFinding>) : HeaderIdentity
+    <U+00A0>~~ checkAndRepair(javaFile : Path, username : String, identity : HeaderIdentity, findings : List<SubmissionFinding>) : List<String>
+  }
+
+  class SubmissionValidationResult <<record>> {
+    <U+00A0>- source : Path
+    <U+00A0>- username : String
+    <U+00A0>- normalizedRoot : Path
+    <U+00A0>- findings : List<SubmissionFinding>
+    <U+00A0>- author : HeaderIdentity
+    <U+00A0>- corrections : List<FileCorrection>
+    <U+00A0>+ isReadyForGrading() : boolean
+    <U+00A0>+ hasErrors() : boolean
+    <U+00A0>+ correctedCount() : long
+  }
+
+  class SubmissionFinding <<record>> {
+    <U+00A0>- severity : FindingSeverity
+    <U+00A0>- code : String
+    <U+00A0>- message : String
+    <U+00A0>- corrected : boolean
+    {static} <U+00A0>+ error(code : String, message : String) : SubmissionFinding
+    {static} <U+00A0>+ corrected(code : String, message : String) : SubmissionFinding
+    <U+00A0>+ needsIdentityConfirmation() : boolean
+    <U+00A0>+ blocksGrading() : boolean
+  }
+
+  enum FindingSeverity {
+    INFO
+    WARNING
+    ERROR
+  }
+
+  class HeaderIdentity <<record>> {
+    <U+00A0>- name : Optional<String>
+    <U+00A0>- email : Optional<String>
+  }
+
+  class FileCorrection <<record>> {
+    <U+00A0>- original : String
+    <U+00A0>- corrected : String
+    <U+00A0>- change : String
+  }
+
+  class StudentIdentity <<record>> {
+    <U+00A0>- username : String
+    <U+00A0>- name : String
+    <U+00A0>- email : String
+  }
+}
+
+SubmissionPreparationService --> "1" ZipExtractor
+SubmissionPreparationService --> "1" UsernameResolver
+SubmissionPreparationService --> "1" StudentHeaders
+SubmissionPreparationService --> "3" SubmissionCheck
+SubmissionPreparationService ..> SubmissionSource : opens
+SubmissionPreparationService ..> SubmissionValidationResult : creates
+SubmissionCorrectionService --> "1" SubmissionPreparationService
+SubmissionCorrectionService ..> StudentIdentity
+
+SubmissionSource <|-- ZipSubmission
+SubmissionSource <|-- FolderSubmission
+ZipSubmission --> "1" ZipExtractor
+
+SubmissionCheck <|.. UsernameFolderCheck
+SubmissionCheck <|.. QuestionFolderCheck
+SubmissionCheck <|.. ExtraJavaFilesCheck
+SubmissionCheck ..> SubmissionContext
+SubmissionContext --> "1" SubmissionSource
+
+SubmissionValidationResult --> "*" SubmissionFinding
+SubmissionValidationResult --> "1" HeaderIdentity
+SubmissionValidationResult --> "*" FileCorrection
+SubmissionFinding --> "1" FindingSeverity
+StudentHeaders ..> HeaderIdentity
+UsernameResolver ..> HeaderIdentity
+@enduml
