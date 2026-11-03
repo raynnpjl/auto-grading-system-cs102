@@ -101,8 +101,8 @@ packaged defaults. A different assessment is graded by describing it in `assessm
 Every grading run is an *attempt* with its own folder, named after the time it started, under
 `grading-reports/` (set by `reports.folder`). Re-grading never overwrites an earlier attempt.
 
-- `summary.pdf`: students needing a manual check listed first with the reasons, the other
-  students, class statistics (marks, each question's pass rate, common style and submission
+- `summary.pdf`: students needing a manual check listed first with the reasons, every graded
+  student, class statistics (marks, each question's pass rate, common style and submission
   problems), and the configuration used: time limits, students graded at the same time, the
   style checker, and the style rules and their weights.
 - `students/<username>.pdf`: the student's identity (username, ZIP or folder name, name and email
