@@ -41,7 +41,7 @@ public final class AttemptSummaryFormatter {
         PlainLanguage.section(report, "Overview", () -> overview(attempt));
         PlainLanguage.section(report, "Students needing a manual check",
                 () -> needingReview(attempt, reportFiles));
-        PlainLanguage.section(report, "Other students", () -> others(attempt, reportFiles));
+        PlainLanguage.section(report, "All graded students", () -> graded(attempt, reportFiles));
         PlainLanguage.section(report, "Possible plagiarism",
                 () -> SimilarityReportFormatter.format(attempt.similarity()));
         PlainLanguage.section(report, "Class statistics", () -> statistics(attempt));
@@ -60,7 +60,7 @@ public final class AttemptSummaryFormatter {
         return attempt.students().size() + " submission(s): " + graded + " graded, "
                 + (attempt.students().size() - graded) + " not graded. "
                 + (review == 0 ? "None needs a manual check.\n\n"
-                        : "Manual check needed for " + review + "; they are listed first.\n\n")
+                        : "Manual check needed for " + review + ".\n\n")
                 + "Questions: " + AssessmentDefinition.QUESTIONS.stream()
                         .map(question -> question.id() + " (" + String.join(", ", question.sources()) + ")")
                         .collect(Collectors.joining("; ")) + ".\n";
@@ -81,15 +81,14 @@ public final class AttemptSummaryFormatter {
         return text.toString();
     }
 
-    private static String others(GradingAttempt attempt, Map<StudentOutcome, String> reportFiles) {
-        List<StudentOutcome> others = attempt.students().stream()
-                .filter(student -> student.reviewReasons().isEmpty())
-                .toList();
-        if (others.isEmpty()) {
+    // Every graded student, including those also listed for a manual check above.
+    private static String graded(GradingAttempt attempt, Map<StudentOutcome, String> reportFiles) {
+        List<StudentOutcome> graded = attempt.students().stream().filter(StudentOutcome::graded).toList();
+        if (graded.isEmpty()) {
             return "None.\n";
         }
         StringBuilder text = new StringBuilder("| Student | Final mark | Style score | Report |\n|---|---|---|---|\n");
-        for (StudentOutcome student : others) {
+        for (StudentOutcome student : graded) {
             text.append(PlainLanguage.row(PlainLanguage.cell(student.username()), finalMark(student),
                     styleScore(student.style()), link(student, reportFiles)));
         }
