@@ -101,10 +101,10 @@ packaged defaults. A different assessment is graded by describing it in `assessm
 Every grading run is an *attempt* with its own folder, named after the time it started, under
 `grading-reports/` (set by `reports.folder`). Re-grading never overwrites an earlier attempt.
 
-- `summary.pdf`: students needing a manual check listed first with the reasons, the other
-  students, class statistics (marks, each question's pass rate, common style and submission
-  problems), and the configuration used: time limits, marks awarded per test case, penalties,
-  style rules and weights, and fingerprints of the style files, so results can be reproduced.
+- `summary.pdf`: students needing a manual check listed first with the reasons, every graded
+  student, class statistics (marks, each question's pass rate, common style and submission
+  problems), and the configuration used: time limits, students graded at the same time, the
+  style checker, and the style rules and their weights.
 - `students/<username>.pdf`: the student's identity (username, ZIP or folder name, name and email
   from the Java headers), structure problems and every automatic correction (original path to
   corrected path), each question's test cases (passed, failed or timed out, with expected and
@@ -190,6 +190,7 @@ Setting a penalty deducts it from the mark written to the score sheet.
     classes.
 - `src/main/resources`: the settings files, and under `ui` the FXML view and CSS stylesheet.
 - `src/test/java`, `src/test/resources`: unit and UI tests.
+- `docs/uml`: PlantUML class diagrams of the design, one per package group.
 - `target`: generated build output, ignored by Git.
 
 The POM declares JavaFX controls and FXML, the Java compiler plugin, and the JavaFX

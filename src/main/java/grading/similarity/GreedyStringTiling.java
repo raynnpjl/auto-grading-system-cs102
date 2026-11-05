@@ -21,7 +21,7 @@ final class GreedyStringTiling implements SimilarityAlgorithm {
 
     @Override
     public String name() {
-        return "Greedy String Tiling (minimum match " + minMatchLength + " tokens)";
+        return "Greedy String Tiling";
     }
 
     @Override

@@ -48,9 +48,7 @@ final class SimilarityReportFormatter {
                 .append("template's code are ignored. Every pair is screened with ")
                 .append(report.algorithms().getFirst())
                 .append("; pairs scoring ").append(Percent.of(settings.screenThreshold()))
-                .append("% or more are scored with ").append(report.algorithms().getLast())
-                .append(", the share of both answers covered by matching runs of code. A high similarity is a reason ")
-                .append("to look, not proof of copying: short answers can only be written a few ways.\n");
+                .append("% or more are scored with ").append(report.algorithms().getLast()).append(".\n");
         return text.toString();
     }
 
