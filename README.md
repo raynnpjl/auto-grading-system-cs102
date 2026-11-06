@@ -20,8 +20,7 @@ Run these commands from this directory on macOS or Linux:
 The Auto Grading System window opens. `compile.sh` compiles every source file into
 `target/classes` (the project uses the Maven layout instead of a `classes` folder), and `run.sh`
 starts the application from this folder, so the files in `config/` are found. Both use the Maven
-Wrapper; `./mvnw clean verify` also runs the tests, and `./style-check.sh` checks this project's
-own code against the same CS102 style rules it applies to students.
+Wrapper; `./mvnw clean verify` also runs the tests.
 
 On Windows Command Prompt, from this folder:
 
@@ -190,8 +189,7 @@ Setting a penalty deducts it from the mark written to the score sheet.
     classes.
 - `src/main/resources`: the settings files, and under `ui` the FXML view and CSS stylesheet.
 - `src/test/java`, `src/test/resources`: unit and UI tests.
-- `docs/uml`: PlantUML class diagrams of the design, one per package group.
-- `target`: generated build output, ignored by Git.
+- `target`: generated build output, created by `compile.sh`.
 
 The POM declares JavaFX controls and FXML, the Java compiler plugin, and the JavaFX
 launcher plugin. JavaFX graphics is included transitively.
