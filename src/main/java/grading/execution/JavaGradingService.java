@@ -35,7 +35,7 @@ public final class JavaGradingService {
     private final ProgressTracker progress;
 
     /**
-     * Uses the settings' limits and reports each student's progress to the tracker the page reads.
+     * Uses the settings' limits and reports each student's progress to the tracker the window reads.
      *
      * @param settings the time, memory, output and parallelism limits
      * @param log      receives each step's log lines

@@ -92,7 +92,7 @@ public final class GradingSession {
 
     /**
      * @param settings   the grading settings
-     * @param progress   receives the state the page shows
+     * @param progress   receives the state the window shows
      * @param workFolder where uploads are normalized
      */
     public GradingSession(GradingSettings settings, ProgressTracker progress, Path workFolder) {
@@ -286,7 +286,7 @@ public final class GradingSession {
 
     /**
      * Grades {@code toGrade}, adds the results kept from earlier, and writes a new attempt for the whole
-     * batch. Runs in its own thread so the page can keep asking for progress. When the marker cancels,
+     * batch. Runs in its own thread so the window can keep asking for progress. When the marker cancels,
      * {@code previous} is put back.
      */
     private void runGrading(List<SubmissionValidationResult> batch, List<SubmissionValidationResult> toGrade,

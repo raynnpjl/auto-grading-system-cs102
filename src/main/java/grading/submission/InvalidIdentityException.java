@@ -3,7 +3,7 @@ package grading.submission;
 
 /**
  * A rejected value in a student identity the marker entered. It names the field that was wrong, so
- * the page can point at that input instead of only showing the message.
+ * the dialog can point at that input instead of only showing the message.
  */
 public final class InvalidIdentityException extends IllegalArgumentException {
 

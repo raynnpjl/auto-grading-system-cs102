@@ -205,7 +205,7 @@ public final class ProgressTracker {
     }
 
     /**
-     * The state of the run now, for the page to show.
+     * The state of the run now, for the window to show.
      *
      * @return a copy that later changes do not affect
      */
