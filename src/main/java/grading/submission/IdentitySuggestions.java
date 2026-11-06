@@ -8,7 +8,7 @@ import java.util.Optional;
 
 /**
  * Suggests a student's name and email from their username, both for automatic header repair and
- * for pre-filling the identity form on the page.
+ * for pre-filling the Resolve issues dialog.
  */
 public final class IdentitySuggestions {
 

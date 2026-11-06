@@ -27,8 +27,7 @@ public record SubmissionFinding(
             "HEADER_IDENTITY_MISMATCH",
             "CONFLICTING_HEADER_IDENTITIES");
 
-    private static final String CONFIRM_IDENTITY = "This student is skipped until resolved. Under \"Confirm the "
-            + "identity of skipped students\" on the grading page, ";
+    private static final String CONFIRM_IDENTITY = "This student is skipped until resolved. In Resolve issues, ";
 
     private static final String DEPENDENCY_STEP = "The other questions are still graded and the question that needs "
             + "this file scores 0. Restore the named support class or test data file from the assessment materials "

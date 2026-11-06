@@ -118,7 +118,7 @@ public final class StudentReportFormatter {
     private static String questions(StudentOutcome student) {
         if (student.grading() == null) {
             return "This submission was not graded in this attempt, so there are no test results. "
-                    + "Confirm the student's identity on the grading page, then grade them.\n";
+                    + "Confirm the student's identity in Resolve issues, then grade them.\n";
         }
         StringBuilder text = new StringBuilder();
         for (AssessmentDefinition.Question question : AssessmentDefinition.QUESTIONS) {

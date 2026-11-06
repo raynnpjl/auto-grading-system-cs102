@@ -39,7 +39,7 @@ public final class JavaGradingService {
      *
      * @param settings the time, memory, output and parallelism limits
      * @param log      receives each step's log lines
-     * @param progress shows each student's progress on the page
+     * @param progress shows each student's progress in the window
      */
     public JavaGradingService(GradingSettings settings, Consumer<String> log, ProgressTracker progress) {
         this(GradingLimits.of(settings), log, new BoundedProcessRunner(settings.maxOutputBytes()), progress);
