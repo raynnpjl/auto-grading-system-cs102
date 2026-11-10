@@ -83,8 +83,13 @@ final class StudentDetailPane {
         if (next != null && next.equals(shown) && !content.getChildren().isEmpty()) {
             return;
         }
+        // Another student opens at the top; the same student updated during a run keeps its place.
+        boolean otherStudent = next == null || shown == null || !next.username().equals(shown.username());
         shown = next;
         content.getChildren().clear();
+        if (otherStudent) {
+            scroll.setVvalue(0);
+        }
         if (next == null) {
             content.getChildren().add(muted("Select a student to see their marks and feedback."));
             return;
