@@ -128,10 +128,20 @@ above `similarity.threshold` (80%) are listed in the **Similar answers** tab, an
 marked *Needs review* when both answers have at least `similarity.min-tokens` tokens. Marks are
 never changed: a person decides.
 
-## Test submissions
+## Demo files
 
-`test-submissions/` holds four submissions the team made for cases the six sample submissions do
-not cover. Import it as the student submissions folder, together with the course's `Tester-Files`:
+`demo/` holds everything needed to try the application:
+
+- `Tester-Files (original)`: the course's tester files. Import it as the tester folder.
+- `tester (invalid)`: a folder with no tester files, to see an invalid tester folder rejected.
+- `student-submissions (original + demo)`: the six sample submissions from the course, plus four
+  the team made for cases they do not cover (listed below). Import it as the student submissions
+  folder.
+- `demo scoresheet.csv`: the course's score sheet with rows for the team's four submissions and
+  `jane.tan.2025`, who has no submission, so the preview lists a student without a graded
+  submission.
+
+The team's four submissions:
 
 - `RenameToYourUsername`: the original resource folder, never renamed, with blank name and email
   headers. Its owner cannot be identified, so it is skipped until confirmed in **Resolve issues**.
