@@ -72,7 +72,7 @@ final class StudentDetailPane {
     }
 
     /**
-     * Shows the student, redrawing only when their data changed.
+     * Shows the student, redrawing only when their data changed; a different student opens at the top.
      *
      * @param student       the selected student, or empty
      * @param reportPresent whether the latest attempt wrote reports that can be opened
